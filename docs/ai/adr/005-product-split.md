@@ -331,7 +331,7 @@ The clone leaves `vst/` untouched; the existing Stencil-TM
 scaffold present in the cloned tree is Pointsman's concern from
 that point on.
 
-- [ ] `git clone ~/src/vst/stencil ~/src/vst/pointsman`. Run
+- [x] `git clone ~/src/vst/stencil ~/src/vst/pointsman`. Run
       `git submodule update --init --recursive` in `pointsman/` to
       materialize the JUCE submodule. Provision the GitHub private
       repo (`im9/pointsman`) and replace `pointsman/.git/config`
