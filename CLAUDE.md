@@ -11,13 +11,6 @@ ships from `~/src/vst/pointsman/`. The two are independent products;
 the musical relationship is the canonical `Stencil → Pointsman` MIDI
 chain.
 
-> **Split in progress.** This document describes the post-ADR-005
-> state. Phase 1 (this commit) updates the docs; Phase 2 creates
-> `~/src/vst/pointsman/` from a clone; Phase 3 trims this repo to
-> TM-only. Until Phase 3 lands, the on-disk layout still has the
-> pre-split `host-tm/` + `host-qt/` + `Stencil-{TM,QT}.{maxpat,amxd}`
-> structure. Remove this callout once Phase 3 ships.
-
 ## Targets
 
 Stencil is developed in parallel across multiple targets that share the

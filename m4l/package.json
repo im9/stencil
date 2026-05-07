@@ -3,17 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Stencil M4L target — pnpm workspace root for engine, host-tm, and host-qt packages.",
+  "description": "Stencil M4L target — pnpm workspace root for engine and host packages.",
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "bake:tm": "node scripts/maxpat-to-amxd.mjs TM",
-    "bake:qt": "node scripts/maxpat-to-amxd.mjs QT",
-    "bake": "pnpm bake:tm && pnpm bake:qt",
-    "bake:check:tm": "node scripts/maxpat-to-amxd.mjs TM --check",
-    "bake:check:qt": "node scripts/maxpat-to-amxd.mjs QT --check",
-    "bake:check": "pnpm bake:check:tm && pnpm bake:check:qt"
+    "bake": "node scripts/maxpat-to-amxd.mjs",
+    "bake:check": "node scripts/maxpat-to-amxd.mjs --check"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

@@ -361,33 +361,33 @@ repo can be trimmed to TM-only. The bullets below are
 stencil-self-contained: each item is doable in this repo without
 referring to Pointsman.
 
-- [ ] Rename `m4l/Stencil-TM.maxpat` → `m4l/Stencil.maxpat`. Update
+- [x] Rename `m4l/Stencil-TM.maxpat` → `m4l/Stencil.maxpat`. Update
       `[node.script]` filename to `stencil.mjs`.
-- [ ] Rename `m4l/host-tm/` → `m4l/host/`. Update `package.json`
+- [x] Rename `m4l/host-tm/` → `m4l/host/`. Update `package.json`
       `name`, `tsconfig.json` paths, all relative imports, and
       rename the n4m entry to `m4l/stencil.mjs`.
-- [ ] In `m4l/engine/`: extract RNG primitives from `turing.ts` into
+- [x] In `m4l/engine/`: extract RNG primitives from `turing.ts` into
       `rng.ts` (functions `seedRng`, `nextU32`, types `RngState`).
       Re-point `turing.ts` imports to `./rng`.
-- [ ] Generate `docs/ai/rng-test-vectors.json` from the seed/step
+- [x] Generate `docs/ai/rng-test-vectors.json` from the seed/step
       prefix of `turing-test-vectors.json`. Add `m4l/engine/rng.test.ts`
       running against it.
-- [ ] Delete QT-only assets in `m4l/`: `Stencil-QT.maxpat`,
+- [x] Delete QT-only assets in `m4l/`: `Stencil-QT.maxpat`,
       `Stencil-QT.amxd`, `m4l/stencil-qt.mjs`, `host-qt/`,
       `scaleKeyboard.jsui.js`, `engine/quantizer.ts`,
       `engine/quantizer.test.ts`. Delete
       `docs/ai/quantizer-test-vectors.json`.
-- [ ] Simplify `m4l/scripts/maxpat-to-amxd.mjs` to single-product
+- [x] Simplify `m4l/scripts/maxpat-to-amxd.mjs` to single-product
       shape (no argv; fixed I/O `Stencil.maxpat` → `Stencil.amxd`).
       Update guard tests to drop per-device branching.
-- [ ] `m4l/package.json` — replace `bake:tm` / `bake:qt` / `bake:check:tm`
+- [x] `m4l/package.json` — replace `bake:tm` / `bake:qt` / `bake:check:tm`
       / `bake:check:qt` with a single `bake` / `bake:check`. Edit
       `m4l/pnpm-workspace.yaml` to drop `host-qt` and rename
       `host-tm` → `host`. Run `pnpm install` to refresh the lock
       file against the new workspace shape.
-- [ ] Run `pnpm -r test`, `pnpm -r typecheck`, `pnpm -r build` from
+- [x] Run `pnpm -r test`, `pnpm -r typecheck`, `pnpm -r build` from
       `m4l/`; all green (TM-only suite).
-- [ ] Run `pnpm bake` and `pnpm bake:check`;
+- [x] Run `pnpm bake` and `pnpm bake:check`;
       `m4l/Stencil.amxd` produced, guards pass.
 
 ### Phase 4 — RNG cross-repo sync verification

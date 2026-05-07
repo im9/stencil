@@ -1,10 +1,8 @@
 #!/usr/bin/env node
-// Bake `m4l/Stencil-${dev}.maxpat` into `m4l/Stencil-${dev}.amxd`.
+// Bake `m4l/Stencil.maxpat` into `m4l/Stencil.amxd`.
 //
-// Per ADR 004 §Bake script. Ported from oedipa with two changes:
-// 1. Accepts `argv[2] in {TM, QT}` (validated; reject else).
-// 2. Resolves I/O as `m4l/Stencil-${dev}.maxpat` ->
-//    `m4l/Stencil-${dev}.amxd` (flat, matches oedipa's `m4l/Oedipa.amxd`).
+// Per ADR 004 §Bake script + ADR 005 §Repository split (single product
+// per repo, no argv). Ported from oedipa.
 //
 // Why hand-build the AMPF wrapper rather than reuse Max's clipboard paste:
 // pasting boxes into an existing .amxd transfers boxes only, NOT
@@ -25,11 +23,10 @@
 //   byte  len-1      : 0x00            (null terminator)
 //
 // Usage:
-//   node scripts/maxpat-to-amxd.mjs TM            # writes m4l/Stencil-TM.amxd
-//   node scripts/maxpat-to-amxd.mjs TM --check    # exit 1 if .amxd would change
-//   node scripts/maxpat-to-amxd.mjs QT            # symmetric for QT
+//   node scripts/maxpat-to-amxd.mjs            # writes m4l/Stencil.amxd
+//   node scripts/maxpat-to-amxd.mjs --check    # exit 1 if .amxd would change
 //
-// Exported `bake({ device, check })` is also called by the bake-script
+// Exported `bake({ check, m4lRoot })` is also called by the bake-script
 // tests; CLI behavior delegates to it.
 
 import { readFile, writeFile, access } from 'node:fs/promises'
@@ -44,7 +41,8 @@ const MAGIC_MMMM = Buffer.from('mmmm', 'ascii')
 const MAGIC_PTCH = Buffer.from('ptch', 'ascii')
 const FORMAT_VERSION = 4
 
-export const VALID_DEVICES = /** @type {const} */ (['TM', 'QT'])
+export const MAXPAT_NAME = 'Stencil.maxpat'
+export const AMXD_NAME = 'Stencil.amxd'
 
 // Build the AMPF wrapper around the .maxpat JSON. Pure function: takes
 // the JSON Buffer, returns the .amxd Buffer. No I/O.
@@ -102,16 +100,11 @@ async function fileExists(path) {
   }
 }
 
-// Bake one device. Returns { wrote, prevSize, nextSize } in non-check
-// mode and { upToDate, prevSize, nextSize } in check mode.
-export async function bake({ device, check, m4lRoot }) {
-  if (!VALID_DEVICES.includes(device)) {
-    throw new Error(
-      `unknown device "${device}"; expected one of ${VALID_DEVICES.join(', ')}`,
-    )
-  }
-  const maxpatPath = resolve(m4lRoot, `Stencil-${device}.maxpat`)
-  const amxdPath = resolve(m4lRoot, `Stencil-${device}.amxd`)
+// Bake the single product. Returns { wrote, prevSize, nextSize } in
+// non-check mode and { upToDate, prevSize, nextSize } in check mode.
+export async function bake({ check, m4lRoot }) {
+  const maxpatPath = resolve(m4lRoot, MAXPAT_NAME)
+  const amxdPath = resolve(m4lRoot, AMXD_NAME)
   const maxpat = await readFile(maxpatPath)
 
   // Validate JSON before shipping a broken .amxd to Live. Parse cost is
@@ -158,25 +151,16 @@ const invokedAsCli = (() => {
 if (invokedAsCli) {
   const args = process.argv.slice(2)
   const check = args.includes('--check')
-  const device = args.find((a) => !a.startsWith('--'))
-  if (!device) {
-    console.error('usage: maxpat-to-amxd.mjs <TM|QT> [--check]')
-    process.exit(2)
-  }
-  if (!VALID_DEVICES.includes(device)) {
-    console.error(`unknown device "${device}"; expected one of ${VALID_DEVICES.join(', ')}`)
-    process.exit(2)
-  }
   const m4lRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   try {
-    const r = await bake({ device, check, m4lRoot })
+    const r = await bake({ check, m4lRoot })
     if (check) {
       if (r.upToDate) {
-        console.log(`Stencil-${device}.amxd is up to date.`)
+        console.log(`${AMXD_NAME} is up to date.`)
         process.exit(0)
       } else {
         console.log(
-          `Stencil-${device}.amxd differs from baked .maxpat (${r.prevSize} -> ${r.nextSize} bytes).`,
+          `${AMXD_NAME} differs from baked .maxpat (${r.prevSize} -> ${r.nextSize} bytes).`,
         )
         process.exit(1)
       }

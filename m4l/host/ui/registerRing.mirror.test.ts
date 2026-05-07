@@ -32,7 +32,7 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Renderer lives at m4l/registerRing.jsui.js (flat, not under
-// host-tm/ui/) because Max [jsui]'s `filename` resolution does not
+// host/ui/) because Max [jsui]'s `filename` resolution does not
 // reliably handle subdirectory paths in M4L presentation view —
 // observed empirically when subdirectory-pathed jsui rendered as a
 // generic placeholder instead of the renderer's output. See ADR 004

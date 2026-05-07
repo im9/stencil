@@ -55,8 +55,8 @@
             {"box": {"id": "obj-pak-noteargs", "maxclass": "newobj", "text": "pak 0 0 0", "numinlets": 3, "numoutlets": 1, "outlettype": [""], "patching_rect": [600.0, 150.0, 80.0, 22.0]}},
             {"box": {"id": "obj-if-noteinout", "maxclass": "newobj", "text": "if $i2 > 0 then noteIn $i1 $i2 $i3 else noteOff $i1 $i3", "numinlets": 3, "numoutlets": 1, "outlettype": [""], "patching_rect": [600.0, 180.0, 380.0, 22.0]}},
 
-            {"box": {"id": "obj-nodescript", "maxclass": "newobj", "text": "node.script stencil-tm.mjs @autostart 1", "numinlets": 1, "numoutlets": 2, "outlettype": ["", ""], "patching_rect": [40.0, 360.0, 420.0, 22.0]}},
-            {"box": {"id": "obj-print-from-node", "maxclass": "newobj", "text": "print stencil-tm-from-node", "numinlets": 1, "numoutlets": 0, "patching_rect": [40.0, 390.0, 200.0, 22.0]}},
+            {"box": {"id": "obj-nodescript", "maxclass": "newobj", "text": "node.script stencil.mjs @autostart 1", "numinlets": 1, "numoutlets": 2, "outlettype": ["", ""], "patching_rect": [40.0, 360.0, 420.0, 22.0]}},
+            {"box": {"id": "obj-print-from-node", "maxclass": "newobj", "text": "print stencil-from-node", "numinlets": 1, "numoutlets": 0, "patching_rect": [40.0, 390.0, 200.0, 22.0]}},
 
             {"box": {"id": "obj-route-out", "maxclass": "newobj", "text": "route note ready register ringHead triggerFlash", "numinlets": 1, "numoutlets": 6, "outlettype": ["", "", "", "", "", ""], "patching_rect": [240.0, 390.0, 320.0, 22.0]}},
             {"box": {"id": "obj-trig-ready", "maxclass": "newobj", "text": "t b", "numinlets": 1, "numoutlets": 1, "outlettype": ["bang"], "patching_rect": [340.0, 450.0, 40.0, 22.0]}},

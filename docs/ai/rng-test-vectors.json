@@ -1,0 +1,319 @@
+{
+  "spec": "ADR 001 / ADR 005 RNG conformance vectors. Cross-repo synchronized between Stencil and Pointsman per ADR 005 §RNG sharing — both repos must vendor byte-identical copies of this file.",
+  "generated_by": "scripts/gen-test-vectors.mjs",
+  "generator_note": "Re-run scripts/gen-test-vectors.mjs to regenerate. Do not hand-edit. The seed/step prefix here is replicated inside turing-test-vectors.json (TM uses these seeds directly); the two files must agree on shared rows.",
+  "meta": {
+    "prng": {
+      "algorithm": "xoshiro128++ (Vigna 2019)",
+      "reference": "https://prng.di.unimi.it/xoshiro128plusplus.c",
+      "state_words": 4,
+      "state_word_bits": 32,
+      "output_bits": 32
+    },
+    "seeding": {
+      "algorithm": "SplitMix64 (Vigna)",
+      "reference": "https://prng.di.unimi.it/splitmix64.c",
+      "convention": "From a u64 seed, call SplitMix64 twice. Split each output u64 into [low32, high32]. The xoshiro128++ state is [low(z1), high(z1), low(z2), high(z2)]."
+    }
+  },
+  "splitmix64_init": [
+    {
+      "seed": {
+        "decimal": "0",
+        "hex": "0x0000000000000000"
+      },
+      "splitmix64_outputs": [
+        {
+          "value_hex": "0xe220a8397b1dcdaf",
+          "value_decimal": "16294208416658607535"
+        },
+        {
+          "value_hex": "0x6e789e6aa1b965f4",
+          "value_decimal": "7960286522194355700"
+        }
+      ],
+      "xoshiro_state_s": [
+        {
+          "hex": "0x7b1dcdaf",
+          "decimal": 2065550767
+        },
+        {
+          "hex": "0xe220a839",
+          "decimal": 3793791033
+        },
+        {
+          "hex": "0xa1b965f4",
+          "decimal": 2713282036
+        },
+        {
+          "hex": "0x6e789e6a",
+          "decimal": 1853398634
+        }
+      ]
+    },
+    {
+      "seed": {
+        "decimal": "1",
+        "hex": "0x0000000000000001"
+      },
+      "splitmix64_outputs": [
+        {
+          "value_hex": "0x910a2dec89025cc1",
+          "value_decimal": "10451216379200822465"
+        },
+        {
+          "value_hex": "0xbeeb8da1658eec67",
+          "value_decimal": "13757245211066428519"
+        }
+      ],
+      "xoshiro_state_s": [
+        {
+          "hex": "0x89025cc1",
+          "decimal": 2298633409
+        },
+        {
+          "hex": "0x910a2dec",
+          "decimal": 2433363436
+        },
+        {
+          "hex": "0x658eec67",
+          "decimal": 1703865447
+        },
+        {
+          "hex": "0xbeeb8da1",
+          "decimal": 3203108257
+        }
+      ]
+    },
+    {
+      "seed": {
+        "decimal": "3735928559",
+        "hex": "0x00000000deadbeef"
+      },
+      "splitmix64_outputs": [
+        {
+          "value_hex": "0x4adfb90f68c9eb9b",
+          "value_decimal": "5395234354446855067"
+        },
+        {
+          "value_hex": "0xde586a3141a10922",
+          "value_decimal": "16021672434157553954"
+        }
+      ],
+      "xoshiro_state_s": [
+        {
+          "hex": "0x68c9eb9b",
+          "decimal": 1758063515
+        },
+        {
+          "hex": "0x4adfb90f",
+          "decimal": 1256175887
+        },
+        {
+          "hex": "0x41a10922",
+          "decimal": 1101072674
+        },
+        {
+          "hex": "0xde586a31",
+          "decimal": 3730336305
+        }
+      ]
+    },
+    {
+      "seed": {
+        "decimal": "1311768467463790320",
+        "hex": "0x123456789abcdef0"
+      },
+      "splitmix64_outputs": [
+        {
+          "value_hex": "0x161922c645ce50e8",
+          "value_decimal": "1592342178222199016"
+        },
+        {
+          "value_hex": "0xad760cafa1697b60",
+          "value_decimal": "12499191764280245088"
+        }
+      ],
+      "xoshiro_state_s": [
+        {
+          "hex": "0x45ce50e8",
+          "decimal": 1171149032
+        },
+        {
+          "hex": "0x161922c6",
+          "decimal": 370746054
+        },
+        {
+          "hex": "0xa1697b60",
+          "decimal": 2708044640
+        },
+        {
+          "hex": "0xad760caf",
+          "decimal": 2910194863
+        }
+      ]
+    }
+  ],
+  "prng": [
+    {
+      "seed": {
+        "decimal": "0",
+        "hex": "0x0000000000000000"
+      },
+      "draws": [
+        {
+          "hex": "0x4653daa3",
+          "decimal": 1179900579
+        },
+        {
+          "hex": "0x73922b58",
+          "decimal": 1938959192
+        },
+        {
+          "hex": "0xb82b4add",
+          "decimal": 3089844957
+        },
+        {
+          "hex": "0xd9fabd3b",
+          "decimal": 3657088315
+        },
+        {
+          "hex": "0x3c8698c3",
+          "decimal": 1015453891
+        },
+        {
+          "hex": "0x1c9b58ff",
+          "decimal": 479942911
+        },
+        {
+          "hex": "0xccac4646",
+          "decimal": 3433842246
+        },
+        {
+          "hex": "0x27e3fd16",
+          "decimal": 669252886
+        }
+      ]
+    },
+    {
+      "seed": {
+        "decimal": "1",
+        "hex": "0x0000000000000001"
+      },
+      "draws": [
+        {
+          "hex": "0x7ff78de4",
+          "decimal": 2146930148
+        },
+        {
+          "hex": "0x9a170265",
+          "decimal": 2585199205
+        },
+        {
+          "hex": "0xdac127b8",
+          "decimal": 3670091704
+        },
+        {
+          "hex": "0x9859e914",
+          "decimal": 2556029204
+        },
+        {
+          "hex": "0x4d4b41b3",
+          "decimal": 1296777651
+        },
+        {
+          "hex": "0xba2afb67",
+          "decimal": 3123379047
+        },
+        {
+          "hex": "0xedc318ad",
+          "decimal": 3988986029
+        },
+        {
+          "hex": "0x8aabeca1",
+          "decimal": 2326523041
+        }
+      ]
+    },
+    {
+      "seed": {
+        "decimal": "3735928559",
+        "hex": "0x00000000deadbeef"
+      },
+      "draws": [
+        {
+          "hex": "0xf9f4d1be",
+          "decimal": 4193571262
+        },
+        {
+          "hex": "0x7064dd42",
+          "decimal": 1885658434
+        },
+        {
+          "hex": "0x0df5e7c2",
+          "decimal": 234219458
+        },
+        {
+          "hex": "0x10d7074f",
+          "decimal": 282527567
+        },
+        {
+          "hex": "0x92177a10",
+          "decimal": 2451012112
+        },
+        {
+          "hex": "0x5fb06f48",
+          "decimal": 1605398344
+        },
+        {
+          "hex": "0xb440aad5",
+          "decimal": 3024136917
+        },
+        {
+          "hex": "0x2882c90b",
+          "decimal": 679659787
+        }
+      ]
+    },
+    {
+      "seed": {
+        "decimal": "1311768467463790320",
+        "hex": "0x123456789abcdef0"
+      },
+      "draws": [
+        {
+          "hex": "0xe7fd1ce1",
+          "decimal": 3892124897
+        },
+        {
+          "hex": "0x0907acbd",
+          "decimal": 151497917
+        },
+        {
+          "hex": "0x3ddf7383",
+          "decimal": 1038054275
+        },
+        {
+          "hex": "0x90bf0fd5",
+          "decimal": 2428440533
+        },
+        {
+          "hex": "0x4b984e4d",
+          "decimal": 1268272717
+        },
+        {
+          "hex": "0x2f8a099f",
+          "decimal": 797575583
+        },
+        {
+          "hex": "0x44df77f8",
+          "decimal": 1155495928
+        },
+        {
+          "hex": "0xbd9821c7",
+          "decimal": 3180863943
+        }
+      ]
+    }
+  ]
+}

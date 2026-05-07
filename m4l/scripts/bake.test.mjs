@@ -1,19 +1,20 @@
 // Tests for the bake script (maxpat-to-amxd.mjs). Pure unit tests over
 // the synthesize-from-scratch AMPF wrapper; no real .maxpat / .amxd
 // touched here. Patcher content is validated separately in
-// patcher-guards.test.mjs.
+// patcher.test.mjs.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  AMXD_NAME,
   HEADER_SIZE,
+  MAXPAT_NAME,
   SIZE_OFFSET,
   TRAILER,
-  VALID_DEVICES,
   bake,
   unwrapAmxd,
   wrapMaxpatJson,
@@ -124,25 +125,15 @@ test('unwrapAmxd — rejects buffer with mismatched chunk size', () => {
 
 // ---- bake(): I/O behavior ------------------------------------------------
 
-test('bake — writes m4l/Stencil-${device}.amxd from m4l/Stencil-${device}.maxpat', async () => {
+test(`bake — writes m4l/${AMXD_NAME} from m4l/${MAXPAT_NAME}`, async () => {
   // Flat layout matching oedipa's `m4l/Oedipa.amxd` (per ADR 004).
   await withTmpRoot(async (root) => {
-    const maxpatPath = join(root, 'Stencil-TM.maxpat')
+    const maxpatPath = join(root, MAXPAT_NAME)
     await writeFile(maxpatPath, MINIMAL_PATCHER_JSON)
-    const r = await bake({ device: 'TM', check: false, m4lRoot: root })
+    const r = await bake({ check: false, m4lRoot: root })
     assert.equal(r.wrote, true)
     const amxd = await readFile(r.amxdPath)
     assert.equal(unwrapAmxd(amxd).toString('utf8'), MINIMAL_PATCHER_JSON)
-  })
-})
-
-test('bake — rejects unknown device', async () => {
-  // Per ADR 004 §Bake script: argv[2] is validated against {TM, QT}.
-  await withTmpRoot(async (root) => {
-    await assert.rejects(
-      () => bake({ device: 'XX', check: false, m4lRoot: root }),
-      /unknown device/,
-    )
   })
 })
 
@@ -150,9 +141,9 @@ test('bake — rejects invalid JSON in .maxpat', async () => {
   // Bake-time JSON.parse so the error surfaces at bake, not in Live's
   // device loader (which gives a less actionable message).
   await withTmpRoot(async (root) => {
-    await writeFile(join(root, 'Stencil-TM.maxpat'), '{ not json')
+    await writeFile(join(root, MAXPAT_NAME), '{ not json')
     await assert.rejects(
-      () => bake({ device: 'TM', check: false, m4lRoot: root }),
+      () => bake({ check: false, m4lRoot: root }),
       /not valid JSON/,
     )
   })
@@ -162,9 +153,9 @@ test('bake --check — returns upToDate when .amxd matches the .maxpat', async (
   // Common path on a fresh checkout: bake.amxd is checked in, --check
   // confirms it matches the source. Used by `pnpm bake:check` in CI/local.
   await withTmpRoot(async (root) => {
-    await writeFile(join(root, 'Stencil-TM.maxpat'), MINIMAL_PATCHER_JSON)
-    await bake({ device: 'TM', check: false, m4lRoot: root })
-    const r = await bake({ device: 'TM', check: true, m4lRoot: root })
+    await writeFile(join(root, MAXPAT_NAME), MINIMAL_PATCHER_JSON)
+    await bake({ check: false, m4lRoot: root })
+    const r = await bake({ check: true, m4lRoot: root })
     assert.equal(r.upToDate, true)
   })
 })
@@ -173,11 +164,11 @@ test('bake --check — returns !upToDate when .maxpat changed but .amxd not re-b
   // The exit-1 path: dev edited .maxpat but forgot to bake. Catches
   // the stale-artifact case before it reaches a release.
   await withTmpRoot(async (root) => {
-    await writeFile(join(root, 'Stencil-TM.maxpat'), MINIMAL_PATCHER_JSON)
-    await bake({ device: 'TM', check: false, m4lRoot: root })
+    await writeFile(join(root, MAXPAT_NAME), MINIMAL_PATCHER_JSON)
+    await bake({ check: false, m4lRoot: root })
     const modified = MINIMAL_PATCHER_JSON.replace('320', '321')
-    await writeFile(join(root, 'Stencil-TM.maxpat'), modified)
-    const r = await bake({ device: 'TM', check: true, m4lRoot: root })
+    await writeFile(join(root, MAXPAT_NAME), modified)
+    const r = await bake({ check: true, m4lRoot: root })
     assert.equal(r.upToDate, false)
   })
 })
@@ -186,8 +177,8 @@ test('bake --check — returns !upToDate when .amxd does not exist yet', async (
   // Fresh checkout with .maxpat but no built .amxd: --check should
   // report stale rather than silently report up-to-date.
   await withTmpRoot(async (root) => {
-    await writeFile(join(root, 'Stencil-TM.maxpat'), MINIMAL_PATCHER_JSON)
-    const r = await bake({ device: 'TM', check: true, m4lRoot: root })
+    await writeFile(join(root, MAXPAT_NAME), MINIMAL_PATCHER_JSON)
+    const r = await bake({ check: true, m4lRoot: root })
     assert.equal(r.upToDate, false)
   })
 })
@@ -196,18 +187,11 @@ test('bake --check — does not write the .amxd', async () => {
   // The "check" name is load-bearing: it must be safe to run in
   // pre-commit hooks / read-only CI. Explicitly assert no write.
   await withTmpRoot(async (root) => {
-    await writeFile(join(root, 'Stencil-TM.maxpat'), MINIMAL_PATCHER_JSON)
-    await bake({ device: 'TM', check: true, m4lRoot: root })
+    await writeFile(join(root, MAXPAT_NAME), MINIMAL_PATCHER_JSON)
+    await bake({ check: true, m4lRoot: root })
     await assert.rejects(
-      () => readFile(join(root, 'Stencil-TM.amxd')),
+      () => readFile(join(root, AMXD_NAME)),
       /ENOENT/,
     )
   })
-})
-
-test('VALID_DEVICES — exactly TM and QT', () => {
-  // Per ADR 002 §m4l layout: two devices, no third. If a future ADR
-  // adds a device, this test forces a deliberate update of the bake
-  // script's accept-list.
-  assert.deepEqual([...VALID_DEVICES], ['TM', 'QT'])
 })

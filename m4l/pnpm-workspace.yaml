@@ -1,5 +1,4 @@
 packages:
   - 'engine'
-  - 'host-tm'
-  - 'host-qt'
+  - 'host'
   - 'scripts'

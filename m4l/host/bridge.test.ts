@@ -52,10 +52,10 @@ function outletsByName(rec: Recorder, name: string) {
 
 test("construction — emits initial register + position; does NOT emit ready", () => {
   const { rec } = makeBridge({ length: 8 });
-  // The patcher's "node.script ready" handshake (ADR 003 §Stencil-TM
+  // The patcher's "node.script ready" handshake (ADR 003 §Stencil
   // patcher) is the *entry script's* responsibility — it must fire only
   // after every Max.addHandler() is registered. The bridge constructor
-  // runs BEFORE addHandler in stencil-tm.mjs, so emitting "ready" here
+  // runs BEFORE addHandler in stencil.mjs, so emitting "ready" here
   // would race the handler installation. Mirrors oedipa: see
   // oedipa-host.entry.mjs Max.outlet('hostReady', 1) at end-of-script.
   assert.ok(
