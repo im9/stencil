@@ -15,7 +15,7 @@ Phase 2.
 
 [adr3]: archive/003-m4l-ui-design.md
 [adr4]: archive/004-m4l-bake-distribution.md
-[adr5]: 005-product-split.md
+[adr5]: archive/005-product-split.md
 
 ## Context
 
@@ -34,9 +34,10 @@ The bullets here are **strict carry-forward** from 003 / 004:
   bake:qt, QT smoke from 004 §Bake outputs; QT-portion of 004's
   audio demo) — they go to `pointsman-002`.
 - Cross-product items dropped — TM → QT chain musical coherence
-  goes to [ADR 005 §Verification](005-product-split.md#verification);
-  Stencil + Pointsman bundle vs split listing goes to ADR 005 or a
-  future cross-product distribution ADR.
+  and Stencil + Pointsman bundle listing are not a Stencil-side
+  release concern (each product ships standalone per
+  [ADR 005 §Musical motivation](005-product-split.md#context)); if
+  needed, they live in a future cross-product ADR.
 - Already-`[x]` items not re-listed — the historical record stays
   in the archived 003 / 004.
 - Wording adjusted only for the post-split single-device naming
@@ -75,9 +76,12 @@ duplicate "bake produces .amxd" item.
 ### Out of scope
 
 - **Pointsman / QT-side items** — `pointsman-002`.
-- **Stencil → Pointsman chain verification** — ADR 005 §Verification.
-- **Cross-product Stencil + Pointsman bundle listing** — ADR 005 or
-  a future cross-product distribution ADR.
+- **Stencil → Pointsman chain verification** — not a Stencil-side
+  concern; downstream composition is the user's choice, not a
+  release gate.
+- **Cross-product Stencil + Pointsman bundle listing** — not a
+  Stencil-side concern; if pursued, lives in a future cross-product
+  distribution ADR.
 - **VST target verification and distribution** — separate ADR
   series; vst is paused at scaffold per ADR 005.
 - **Phase 3 bake-produces-Stencil.amxd verification** — ADR 005

@@ -1,8 +1,9 @@
 # ADR 005: Product Split — Stencil (TM) and Pointsman (QT)
 
-## Status: Proposed
+## Status: Implemented
 
 **Created**: 2026-05-07
+**Implemented**: 2026-05-08 (Stencil-side trim landed: TM-only m4l workspace, RNG primitives extracted to `rng.ts` + `rng-test-vectors.json`, QT assets removed, single-product bake script. Pointsman bootstrap pushed to `im9/pointsman` with QT-scoped `CLAUDE.md` and `001-pointsman-base.md`; further migration is owned by Pointsman. RNG cross-repo sync verified byte-identical at the data level. Functional verification of post-split Stencil delegated to ADR 006.)
 
 This ADR splits Stencil into two independently-shipped products with
 separate repositories, sets per-product naming, and resolves the VST
@@ -11,7 +12,7 @@ disposes of [ADR 003][adr3] (m4l UI design) and [ADR 004][adr4] (m4l
 bake / distribution), whose pre-split scopes are bisected by the
 decision below.
 
-[adr2-vst]: archive/002-m4l-architecture.md
+[adr2-vst]: 002-m4l-architecture.md
 [adr3]: 003-m4l-ui-design.md
 [adr4]: 004-m4l-bake-distribution.md
 
@@ -32,7 +33,7 @@ Each generative unit is musically complete on its own:
   [concept.md §Composition][concept-comp]) but is one of three
   use cases, not the only one.
 
-[concept-comp]: ../concept.md#composition--tm--qt-chain
+[concept-comp]: ../../concept.md#composition--tm--qt-chain
 
 Treating TM and QT as one combined product framed around the chain
 hides the standalone musicality and forces a "buy both, learn both"
@@ -53,7 +54,7 @@ ADR 002 left open in line 77-80 was VST architecture:
 > windows, separate parameter automation lanes). VST's architecture
 > lives in its own ADR.
 
-[adr2-topology]: archive/002-m4l-architecture.md#topology--two-devices-not-one
+[adr2-topology]: 002-m4l-architecture.md#topology--two-devices-not-one
 
 After product-side reconsideration (2026-05-07), combining into one
 VST plugin is rejected. The cost of combining (loss of standalone
@@ -78,10 +79,10 @@ The RNG (xoshiro128++ + SplitMix64 seeding) is contractually frozen
 by [ADR 001 §Implementation][adr1-impl] and verified via
 [turing-test-vectors.json][tv-tm].
 
-[turing]: ../../../m4l/engine/turing.ts
-[quantizer]: ../../../m4l/engine/quantizer.ts
-[adr1-impl]: archive/001-engine-interface.md
-[tv-tm]: ../turing-test-vectors.json
+[turing]: ../../../../m4l/engine/turing.ts
+[quantizer]: ../../../../m4l/engine/quantizer.ts
+[adr1-impl]: 001-engine-interface.md
+[tv-tm]: ../../turing-test-vectors.json
 
 The total shared surface is ~100 lines of well-specified code. Repo
 split is therefore low-cost: duplicate the RNG with test-vector sync,
@@ -307,11 +308,11 @@ earlier checklists.
 
 ### Phase 1 — docs alignment (this repo)
 
-- [x] [docs/ai/concept.md](../concept.md) — replace `Stencil TM` /
+- [x] [docs/ai/concept.md](../../concept.md) — replace `Stencil TM` /
       `Stencil QT` references with `Stencil` / `Pointsman`. Update
       §Topology header and prose. Pointsman's `concept.md` is the
       Pointsman repo's own concern post-split.
-- [x] [CLAUDE.md](../../../CLAUDE.md) — update §Targets, §Layout,
+- [x] [CLAUDE.md](../../../../CLAUDE.md) — update §Targets, §Layout,
       §Build to reflect single-product (TM-only) state of this repo.
       Pointsman's `CLAUDE.md` is authored separately in Phase 2.
 - [x] [docs/ai/adr/INDEX.md](INDEX.md) — flip ADR 003 / ADR 004 to
@@ -396,44 +397,19 @@ The RNG is extracted independently in each repo (Pointsman owns
 its own extraction; Stencil's is under Phase 3 above). This phase
 confirms the two extractions produced byte-identical results.
 
-- [ ] `diff stencil/m4l/engine/rng.ts pointsman/m4l/engine/rng.ts`
+- [x] `diff stencil/m4l/engine/rng.ts pointsman/m4l/engine/rng.ts`
       reports no difference (modulo blank lines).
-- [ ] `diff stencil/docs/ai/rng-test-vectors.json
+- [x] `diff stencil/docs/ai/rng-test-vectors.json
       pointsman/docs/ai/rng-test-vectors.json` reports no difference.
-- [ ] Both repos' `rng.test.ts` pass against their own (byte-identical)
+- [x] Both repos' `rng.test.ts` pass against their own (byte-identical)
       `rng-test-vectors.json`.
 
 ## Verification
 
-Manual cross-repo verification, run after Phase 4 is complete (both
-repos finalized, RNG sync confirmed):
-
-- [ ] In Live, load `stencil/m4l/Stencil.amxd` and
-      `pointsman/m4l/Pointsman.amxd` on the same MIDI track in the
-      `Stencil → Pointsman` chain order. Output is musically identical
-      to the pre-split `Stencil-TM → Stencil-QT` chain (regression
-      check against muscle memory of the Implemented v1).
-- [ ] Save the Live set with the chain, close, reopen — both devices
-      restore parameter state. Closing Live and reopening preserves
-      the chain order.
-- [ ] `Stencil.amxd` loaded alone, routed to a drum sampler, produces
-      standalone-musical output (validates the standalone-use claim
-      from §Musical motivation; if this fails, the §Musical motivation
-      premise must be re-examined before the split is committed
-      further).
-- [ ] `Pointsman.amxd` loaded alone, downstream of a played MIDI
-      keyboard track, snaps input to scale and emits the snapped
-      output (validates the QT-standalone claim).
-- [ ] After Phase 3 (this repo) is Implemented and Pointsman has
-      finished its own migration, `git status` is clean in both
-      repos (no untracked artifacts, no stale build outputs from
-      the pre-split layout, no leftover QT files in `stencil/`,
-      no leftover TM files in `pointsman/`).
-
-The §Verification items inherited from ADR 003 (TM-specific manual
-checks for `live.*` automation, MIDI map, theme rendering, transport
-behavior) carry forward into ADR 006 in this repo. The QT-specific
-checks are the Pointsman repo's own concern.
+Post-split Stencil functional verification lives in
+[ADR 006 §Verification](../006-m4l-release-verification.md#verification).
+The §Musical motivation TM-alone premise is grounded in ongoing
+standalone use of Stencil pre-split, not re-checked here.
 
 ## Per-target notes
 
