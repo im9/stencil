@@ -6,7 +6,7 @@ loop. MIDI effect, DAW-native. Named after Herbert Stencil from Thomas
 Pynchon's *V.*
 
 Stencil is the TM-side product of the Stencil + Pointsman pair (see
-[ADR 005](docs/ai/adr/005-product-split.md)). The QT-side companion
+[ADR 005](docs/ai/adr/archive/005-product-split.md)). The QT-side companion
 ships from `~/src/vst/pointsman/`. The two are independent products;
 the musical relationship is the canonical `Stencil → Pointsman` MIDI
 chain.
@@ -72,6 +72,7 @@ m4l/                 — Max for Live device (Stencil only)
     package.json, tsconfig.json
   stencil.mjs        — n4m entry, loaded by [node.script] (flat path)
   registerRing.jsui.js — bit ring renderer (flat path; loaded by [jsui])
+  registerRing.subpatcher.maxpat — companion subpatcher (flat path; bpatcher in Stencil.maxpat)
   Stencil.maxpat     — Max patcher source (tracked in git)
   Stencil.amxd       — Max for Live device (built artifact, tracked)
   scripts/

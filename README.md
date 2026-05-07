@@ -1,8 +1,8 @@
 # Stencil
 
-Probabilistic MIDI sequence generator — a Music Thing-style Turing
-Machine shift register that emits notes from a controlled-randomness
-loop.
+Probabilistic MIDI sequence generator inspired by Music Thing
+Modular's Turing Machine — a shift register that emits notes from a
+controlled-randomness loop.
 
 Named after Herbert Stencil, the protagonist of Thomas Pynchon's *V.* —
 a man assembling a pattern from random clues, "always becoming." The
