@@ -244,8 +244,8 @@ MIDI Effect format, VST3 + AU) and stops there.
 |-----|------------------|--------------------------------------------------------------------|
 | 001 | Implemented (archived) | Preserved. Engine interface contract holds; cross-repo sync via shared `rng-test-vectors.json` extends ADR 001's mechanism. |
 | 002 | Implemented (archived) | Preserved with partial supersession (see §Supersedes). m4l-internal layering decisions carry into each post-split repo unchanged. |
-| 003 | Proposed              | Mark **Implemented** (m4l UI design landed for both devices). §Verification items (manual Live checks) carry forward to ADR 006 (TM-side) and pointsman-002 (QT-side). Archive. |
-| 004 | Proposed              | Mark **Implemented** for the bake/check pipeline (already shipped). The argv parameterization is obsolete post-split (each repo has one product) and is replaced per-repo in Phase 2 / Phase 3 below. §Distribution items move to per-product distribution ADRs. Archive. |
+| 003 | Proposed              | Mark **Implemented** (m4l UI design landed for both devices). TM-side §Verification items (manual Live checks) carry forward to ADR 006; QT-side items go to the Pointsman repo's own ADR set. Archive. |
+| 004 | Proposed              | Mark **Implemented** for the bake/check pipeline (already shipped). The argv parameterization is obsolete post-split (each repo has one product) and is replaced per-repo (each repo's own single-product bake). §Distribution items move to per-product distribution ADRs. Archive. |
 
 ## Scope
 
@@ -283,13 +283,15 @@ MIDI Effect format, VST3 + AU) and stops there.
 ## Implementation checklist
 
 The migration is structured as **clone first, then each repo cleans
-up independently**. Phase 1 aligns docs in this repo. Phase 2 creates
-`pointsman/` by `git clone`-ing `stencil/` (full working state and
-git history in one operation), then renames / extracts / deletes
-inside `pointsman/` until only QT content remains. Phase 3 then does
-the symmetric cleanup inside `stencil/` (rename TM, extract RNG,
-delete QT). Phase 4 verifies the two repos' RNG implementations
-stayed byte-identical across the independent extractions.
+up independently**. Phase 1 aligns docs in this repo. Phase 2
+bootstraps `pointsman/` from a clone of `stencil/` and seeds it
+with a QT-scoped `CLAUDE.md` plus a Pointsman-side migration ADR;
+the migration itself is owned by Pointsman and tracked entirely
+inside the Pointsman repo. Phase 3 then does the symmetric cleanup
+inside `stencil/` (rename TM, extract RNG, delete QT) — its
+checklist is stencil-self-contained. Phase 4 verifies the two
+repos' RNG implementations stayed byte-identical across the
+independent extractions.
 
 Cloning is preferred over per-file copy because it preserves git
 history, the JUCE submodule reference, and all working state in one
@@ -298,16 +300,17 @@ shape as Stencil's own cleanup in Phase 3, giving the two repos
 symmetric migration paths.
 
 Phase 2 reads from `stencil/` only via `git clone`; `stencil/` is not
-modified until Phase 3. Each phase's bullets are doable when the
-phase's other bullets are done — no cross-phase prerequisites embedded
-inside earlier checklists.
+modified by the migration itself (only by ADR 005's own checkbox
+flips). Each phase's bullets are doable when the phase's other
+bullets are done — no cross-phase prerequisites embedded inside
+earlier checklists.
 
 ### Phase 1 — docs alignment (this repo)
 
 - [x] [docs/ai/concept.md](../concept.md) — replace `Stencil TM` /
       `Stencil QT` references with `Stencil` / `Pointsman`. Update
-      §Topology header and prose. Pointsman's `concept.md` is
-      authored separately in Phase 2 with the same naming.
+      §Topology header and prose. Pointsman's `concept.md` is the
+      Pointsman repo's own concern post-split.
 - [x] [CLAUDE.md](../../../CLAUDE.md) — update §Targets, §Layout,
       §Build to reflect single-product (TM-only) state of this repo.
       Pointsman's `CLAUDE.md` is authored separately in Phase 2.
@@ -315,84 +318,48 @@ inside earlier checklists.
       *Implemented* and move both files to `archive/`. Add ADR 006
       row (the ADR 005 row is already present).
 
-### Phase 2 — Pointsman repo creation (clone + cleanup)
+### Phase 2 — Pointsman repo bootstrap (this session)
 
-Bootstrap the new repo by cloning `stencil/` (preserves git history,
-JUCE submodule reference, and all working state in one operation).
-Then in the cloned repo, rename / extract / delete until only
-QT-relevant content remains. `stencil/` itself is read-only for the
-duration of this phase — no edits to the source repo.
+Bootstrap the new repo to the point where it can be handed off to
+its own session. This phase covers: cloning, GitHub repo
+provisioning, the QT-scoped `CLAUDE.md`, and the Pointsman-side
+migration ADR (`001-pointsman-base.md`). The structural
+transformation itself is owned by Pointsman and is not tracked
+here.
 
-`vst/Source/` is **out of scope for Phase 2** beyond the clone:
-the scaffold present in the cloned repo is the existing Stencil-TM
-scaffold and is rewritten only when Pointsman's vst work begins,
-under a per-product vst-architecture ADR (per §Per-target notes).
-Phase 2 leaves `vst/` untouched.
+The clone leaves `vst/` untouched; the existing Stencil-TM
+scaffold present in the cloned tree is Pointsman's concern from
+that point on.
 
 - [ ] `git clone ~/src/vst/stencil ~/src/vst/pointsman`. Run
-      `git submodule update --init` in `pointsman/` to materialize
-      the JUCE submodule. Provision the GitHub private repo
-      (`im9/pointsman`) and replace `pointsman/.git/config`
+      `git submodule update --init --recursive` in `pointsman/` to
+      materialize the JUCE submodule. Provision the GitHub private
+      repo (`im9/pointsman`) and replace `pointsman/.git/config`
       `[remote "origin"]` (which the local clone left pointing at
-      `~/src/vst/stencil`) with the GitHub URL; push `main` so the
-      new repo has a real upstream from day one. Per §Distribution
-      posture the repo stays private during development.
-- [ ] In `pointsman/m4l/`: rename `Stencil-QT.maxpat` →
-      `Pointsman.maxpat`; rename `stencil-qt.mjs` → `pointsman.mjs`
-      and update its internal `host-qt/dist/` references to
-      `host/dist/`; update the patcher's `[node.script]` filename
-      to `pointsman.mjs`. Rename `host-qt/` → `host/`; update
-      `host/package.json` `name` (`@stencil/host-qt` →
-      `@pointsman/host`), `host/tsconfig.json` paths, all relative
-      imports inside `host/`. Update the workspace root
-      `m4l/package.json` `name` (`@stencil/m4l` → `@pointsman/m4l`)
-      and edit `m4l/pnpm-workspace.yaml` to drop `host-tm` and
-      rename `host-qt` → `host`.
-- [ ] In `pointsman/m4l/engine/`: extract RNG from `turing.ts` to
-      `rng.ts` (functions `seedRng`, `nextU32`, types `RngState`).
-      Re-point `quantizer.ts` and `host/humanize.ts` imports to
-      `./rng`. Generate `pointsman/docs/ai/rng-test-vectors.json`
-      from the seed/step prefix of `turing-test-vectors.json`. Add
-      `pointsman/m4l/engine/rng.test.ts`.
-- [ ] In `pointsman/`: delete TM-only assets —
-      `m4l/Stencil-TM.maxpat`, `m4l/Stencil-TM.amxd`,
-      `m4l/Stencil-TM Project/` (Live's auto-generated project
-      folder for the TM device), `m4l/stencil-tm.mjs`,
-      `m4l/host-tm/`, `m4l/engine/turing.ts`,
-      `m4l/engine/turing.test.ts`, `m4l/registerRing.jsui.js`,
-      `m4l/registerRing.subpatcher.maxpat`,
-      `docs/ai/turing-test-vectors.json`.
-- [ ] Replace `pointsman/CLAUDE.md` with QT-scoped content. Narrow
-      `pointsman/docs/ai/concept.md` to QT (drop TM sections; retain
-      shared MIDI semantics and humanize content).
-- [ ] Replace `pointsman/docs/ai/adr/`: `git rm` the cloned-from-Stencil
-      ADRs (001 / 002 / 003 / 004 / 005 / 006 and the archive). Author
-      `pointsman/docs/ai/adr/001-pointsman-base.md` carrying forward
-      QT-relevant content from Stencil's archived ADRs 002 (§Stencil QT)
-      and 003 (§QT scale keyboard, §QT quantize mode, §Visual identity).
-      Author `pointsman/docs/ai/adr/002-pointsman-release.md` as the
-      symmetric ADR to Stencil's [ADR 006](006-m4l-release-verification.md),
-      carrying forward QT-side items from archived ADR 003 §Verification
-      (QT scale keyboard, QT keyboard click [x], QT mode = scale / chord
-      / harmony, QT controlChannel) and from archived ADR 004 (§Bake
-      outputs: bake produces Pointsman.amxd, Pointsman.amxd loads in
-      Live, QT smoke, transport hung-notes; §Distribution: channel,
-      screenshot, audio demo Pointsman solo, description copy, upload).
-      Author the new `INDEX.md`.
-- [ ] Simplify `pointsman/m4l/scripts/maxpat-to-amxd.mjs` to
-      single-product shape (no argv; fixed I/O `Pointsman.maxpat` →
-      `Pointsman.amxd`). Update guard tests; collapse `bake:tm` /
-      `bake:qt` scripts in `pointsman/m4l/package.json` to a single
-      `bake` / `bake:check`.
-- [ ] From `pointsman/m4l/`: run `pnpm install` (the clone does not
-      bring `node_modules`), then `pnpm -r test`, `pnpm -r typecheck`,
-      `pnpm -r build`; all green. Run `pnpm bake` and `pnpm bake:check`;
-      `pointsman/m4l/Pointsman.amxd` produced.
+      `~/src/vst/stencil`) with the GitHub URL; `git push -u origin
+      main` so the new repo has a real upstream from day one. Per
+      §Distribution posture the repo stays private during
+      development.
+- [x] Replace `pointsman/CLAUDE.md` with QT-scoped content
+      orienting future Pointsman sessions to the post-split shape.
+      Include a pointer to `001-pointsman-base.md` as the
+      migration plan.
+- [x] Author `pointsman/docs/ai/adr/001-pointsman-base.md` as
+      the Pointsman-side migration ADR. Once authored, its
+      contents are owned by Pointsman; this ADR does not track
+      or duplicate them.
+
+Once these three bullets land (committed to `pointsman/` and
+pushed to GitHub), this ADR's responsibility for Pointsman is
+complete. Anything further on the Pointsman side happens in the
+Pointsman repo and is not tracked here.
 
 ### Phase 3 — Stencil repo migration (this repo)
 
-Pointsman has its own copy now (Phase 2 complete); this repo can be
-trimmed to TM-only. Symmetric to Phase 2: rename, extract, delete.
+Once Phase 2 is complete (Pointsman has its own clone), this
+repo can be trimmed to TM-only. The bullets below are
+stencil-self-contained: each item is doable in this repo without
+referring to Pointsman.
 
 - [ ] Rename `m4l/Stencil-TM.maxpat` → `m4l/Stencil.maxpat`. Update
       `[node.script]` filename to `stencil.mjs`.
@@ -425,9 +392,9 @@ trimmed to TM-only. Symmetric to Phase 2: rename, extract, delete.
 
 ### Phase 4 — RNG cross-repo sync verification
 
-The RNG was extracted independently in Phase 2 (Pointsman) and
-Phase 3 (Stencil); this phase confirms the two extractions produced
-byte-identical results.
+The RNG is extracted independently in each repo (Pointsman owns
+its own extraction; Stencil's is under Phase 3 above). This phase
+confirms the two extractions produced byte-identical results.
 
 - [ ] `diff stencil/m4l/engine/rng.ts pointsman/m4l/engine/rng.ts`
       reports no difference (modulo blank lines).
@@ -457,16 +424,16 @@ repos finalized, RNG sync confirmed):
 - [ ] `Pointsman.amxd` loaded alone, downstream of a played MIDI
       keyboard track, snaps input to scale and emits the snapped
       output (validates the QT-standalone claim).
-- [ ] After Phase 3, `git status` is clean in both repos (no
-      untracked artifacts, no stale build outputs from the pre-split
-      layout, no leftover QT files in `stencil/`, no leftover TM files
-      in `pointsman/`).
+- [ ] After Phase 3 (this repo) is Implemented and Pointsman has
+      finished its own migration, `git status` is clean in both
+      repos (no untracked artifacts, no stale build outputs from
+      the pre-split layout, no leftover QT files in `stencil/`,
+      no leftover TM files in `pointsman/`).
 
 The §Verification items inherited from ADR 003 (TM-specific manual
 checks for `live.*` automation, MIDI map, theme rendering, transport
 behavior) carry forward into ADR 006 in this repo. The QT-specific
-checks from ADR 003 §Verification carry forward into pointsman-002 in
-the new repo. Neither set is duplicated here.
+checks are the Pointsman repo's own concern.
 
 ## Per-target notes
 
