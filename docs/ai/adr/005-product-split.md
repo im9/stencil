@@ -121,9 +121,10 @@ and oedipa:
 - **License** — same as Stencil's `LICENSE`. The Phase 2 `git clone`
   preserves the file verbatim into Pointsman; no new license decision.
 - **Repo visibility** — private during development, public at
-  distribution time. The clone runs with no GitHub `[remote]` origin
-  during local work; remote provisioning is part of the distribution
-  cycle, not the split.
+  distribution time. The Pointsman GitHub repo (`im9/pointsman`,
+  private) is provisioned at split time as part of Phase 2 so the
+  cloned working tree has a real GitHub upstream from day one;
+  flipping to public happens at distribution time.
 - **Pricing** — free distribution. Both Stencil and Pointsman serve
   as brand-presence products under the im9 label rather than revenue
   drivers, in the same posture as oedipa. Distribution-channel
@@ -322,16 +323,31 @@ Then in the cloned repo, rename / extract / delete until only
 QT-relevant content remains. `stencil/` itself is read-only for the
 duration of this phase — no edits to the source repo.
 
+`vst/Source/` is **out of scope for Phase 2** beyond the clone:
+the scaffold present in the cloned repo is the existing Stencil-TM
+scaffold and is rewritten only when Pointsman's vst work begins,
+under a per-product vst-architecture ADR (per §Per-target notes).
+Phase 2 leaves `vst/` untouched.
+
 - [ ] `git clone ~/src/vst/stencil ~/src/vst/pointsman`. Run
       `git submodule update --init` in `pointsman/` to materialize
-      the JUCE submodule. Optionally repoint
-      `pointsman/.git/config` `[remote]` to a new origin URL when
-      one is provisioned (can be deferred to distribution time).
+      the JUCE submodule. Provision the GitHub private repo
+      (`im9/pointsman`) and replace `pointsman/.git/config`
+      `[remote "origin"]` (which the local clone left pointing at
+      `~/src/vst/stencil`) with the GitHub URL; push `main` so the
+      new repo has a real upstream from day one. Per §Distribution
+      posture the repo stays private during development.
 - [ ] In `pointsman/m4l/`: rename `Stencil-QT.maxpat` →
-      `Pointsman.maxpat`; update `[node.script]` filename to
-      `pointsman.mjs`. Rename `host-qt/` → `host/`; update
-      `package.json` `name`, `tsconfig.json` paths, relative
-      imports, and the n4m entry to `m4l/pointsman.mjs`.
+      `Pointsman.maxpat`; rename `stencil-qt.mjs` → `pointsman.mjs`
+      and update its internal `host-qt/dist/` references to
+      `host/dist/`; update the patcher's `[node.script]` filename
+      to `pointsman.mjs`. Rename `host-qt/` → `host/`; update
+      `host/package.json` `name` (`@stencil/host-qt` →
+      `@pointsman/host`), `host/tsconfig.json` paths, all relative
+      imports inside `host/`. Update the workspace root
+      `m4l/package.json` `name` (`@stencil/m4l` → `@pointsman/m4l`)
+      and edit `m4l/pnpm-workspace.yaml` to drop `host-tm` and
+      rename `host-qt` → `host`.
 - [ ] In `pointsman/m4l/engine/`: extract RNG from `turing.ts` to
       `rng.ts` (functions `seedRng`, `nextU32`, types `RngState`).
       Re-point `quantizer.ts` and `host/humanize.ts` imports to
@@ -339,9 +355,11 @@ duration of this phase — no edits to the source repo.
       from the seed/step prefix of `turing-test-vectors.json`. Add
       `pointsman/m4l/engine/rng.test.ts`.
 - [ ] In `pointsman/`: delete TM-only assets —
-      `m4l/Stencil-TM.maxpat`, `m4l/Stencil-TM.amxd`, `m4l/host-tm/`,
-      `m4l/engine/turing.ts`, `m4l/engine/turing.test.ts`,
-      `m4l/registerRing.jsui.js`,
+      `m4l/Stencil-TM.maxpat`, `m4l/Stencil-TM.amxd`,
+      `m4l/Stencil-TM Project/` (Live's auto-generated project
+      folder for the TM device), `m4l/stencil-tm.mjs`,
+      `m4l/host-tm/`, `m4l/engine/turing.ts`,
+      `m4l/engine/turing.test.ts`, `m4l/registerRing.jsui.js`,
       `m4l/registerRing.subpatcher.maxpat`,
       `docs/ai/turing-test-vectors.json`.
 - [ ] Replace `pointsman/CLAUDE.md` with QT-scoped content. Narrow
@@ -366,8 +384,9 @@ duration of this phase — no edits to the source repo.
       `Pointsman.amxd`). Update guard tests; collapse `bake:tm` /
       `bake:qt` scripts in `pointsman/m4l/package.json` to a single
       `bake` / `bake:check`.
-- [ ] Run `pnpm -r test`, `pnpm -r typecheck`, `pnpm -r build` from
-      `pointsman/m4l/`; all green. Run `pnpm bake` and `pnpm bake:check`;
+- [ ] From `pointsman/m4l/`: run `pnpm install` (the clone does not
+      bring `node_modules`), then `pnpm -r test`, `pnpm -r typecheck`,
+      `pnpm -r build`; all green. Run `pnpm bake` and `pnpm bake:check`;
       `pointsman/m4l/Pointsman.amxd` produced.
 
 ### Phase 3 — Stencil repo migration (this repo)
@@ -387,14 +406,18 @@ trimmed to TM-only. Symmetric to Phase 2: rename, extract, delete.
       prefix of `turing-test-vectors.json`. Add `m4l/engine/rng.test.ts`
       running against it.
 - [ ] Delete QT-only assets in `m4l/`: `Stencil-QT.maxpat`,
-      `Stencil-QT.amxd`, `host-qt/`, `scaleKeyboard.jsui.js`,
-      `engine/quantizer.ts`, `engine/quantizer.test.ts`. Delete
+      `Stencil-QT.amxd`, `m4l/stencil-qt.mjs`, `host-qt/`,
+      `scaleKeyboard.jsui.js`, `engine/quantizer.ts`,
+      `engine/quantizer.test.ts`. Delete
       `docs/ai/quantizer-test-vectors.json`.
 - [ ] Simplify `m4l/scripts/maxpat-to-amxd.mjs` to single-product
       shape (no argv; fixed I/O `Stencil.maxpat` → `Stencil.amxd`).
       Update guard tests to drop per-device branching.
 - [ ] `m4l/package.json` — replace `bake:tm` / `bake:qt` / `bake:check:tm`
-      / `bake:check:qt` with a single `bake` / `bake:check`.
+      / `bake:check:qt` with a single `bake` / `bake:check`. Edit
+      `m4l/pnpm-workspace.yaml` to drop `host-qt` and rename
+      `host-tm` → `host`. Run `pnpm install` to refresh the lock
+      file against the new workspace shape.
 - [ ] Run `pnpm -r test`, `pnpm -r typecheck`, `pnpm -r build` from
       `m4l/`; all green (TM-only suite).
 - [ ] Run `pnpm bake` and `pnpm bake:check`;
