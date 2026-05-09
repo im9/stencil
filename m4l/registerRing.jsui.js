@@ -2,14 +2,20 @@
 // Spec: docs/ai/adr/003-m4l-ui-design.md "TM register ring".
 // Reference: inboil's TuringSheet.svelte ring visualization.
 //
-// Revolver model (ADR 003): a fixed pointer triangle marks the read
-// position at the top of the ring; the bit ring rotates CCW by
-// `cumulativeSteps * (2*PI/length)` so each shift carries the next bit
-// under the pointer. CCW matches the engine's shift direction.
-// cumulativeSteps is host.position (monotonic counter, reset on transport
-// start/stop and seed change), arriving via the bridge's `ringHead`
-// outlet. The host also emits `triggerFlash 0|1` per step so the bit at
-// the pointer flashes salmon precisely when the audible step fires.
+// Revolver model (ADR 003, amended 2026-05-09): a fixed pointer
+// triangle marks the read position at the top of the ring; the bit
+// ring rotates CW by `cumulativeSteps * (2*PI/length)` so each shift
+// carries the next bit under the pointer. CW mirrors inboil
+// TuringSheet's positive `rotationDeg` applied via SVG transform:
+// rotate() (positive deg = CW in screen coords); the original ADR 003
+// said CCW with an "engine shift alignment" rationale, but engine
+// shift direction (indices UP) is independent of visual rotation, and
+// CW is the musically natural choice (clock-hand convention = time
+// advancing). cumulativeSteps is host.position (monotonic counter,
+// reset on transport start/stop and seed change), arriving via the
+// bridge's `ringHead` outlet. The host also emits `triggerFlash 0|1`
+// per step so the bit at the pointer flashes salmon precisely when
+// the audible step fires.
 //
 // Pure layout & hit-test logic lives in m4l/host-tm/ui/registerRing.logic.ts
 // (with unit tests). Max's [jsui] runs Max's bundled JS engine, not Node,
@@ -150,8 +156,9 @@ function computeGeometry(boxW, boxH, len) {
 
 function bitPositionRotated(idx, g, steps) {
   var stepAngle = (Math.PI * 2) / g.length
-  // CCW rotation matches engine shift direction (ADR 003 TM register ring)
-  var angle = (idx / g.length) * Math.PI * 2 - Math.PI / 2 - steps * stepAngle
+  // CW rotation mirrors inboil TuringSheet's positive rotationDeg via SVG
+  // transform: rotate() (ADR 003 TM register ring, amended 2026-05-09)
+  var angle = (idx / g.length) * Math.PI * 2 - Math.PI / 2 + steps * stepAngle
   return {
     x: g.cx + g.radius * Math.cos(angle),
     y: g.cy + g.radius * Math.sin(angle)
@@ -168,8 +175,8 @@ function pointerTip(g) {
 function readingIndexAt(steps, len) {
   if (len <= 0) return -1
   var k = Math.floor(steps)
-  // CCW rotation: bit at top has logical index `k mod len`
-  return ((k % len) + len) % len
+  // CW rotation: bit at top has logical index `(len - k) mod len`
+  return (((len - k) % len) + len) % len
 }
 
 function hitTestRotated(x, y, g, steps) {

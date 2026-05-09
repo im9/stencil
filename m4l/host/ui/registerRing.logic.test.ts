@@ -155,14 +155,14 @@ test("bitPositionRotated — period equals length (full revolution returns to st
   }
 });
 
-test("bitPositionRotated — 1 step CCW shifts bit 0 to angle -π/2 - 2π/length", () => {
-  // ADR 003 §TM register ring: rotation is CCW to match the engine's
-  // shift direction (`register >>> 1` moves indices DOWN, so the bit
-  // consumed at index 0 visually flows away from the pointer in the
-  // CCW direction). bit 0 starts at top (angle -π/2) and after 1 step
-  // lands at the next CCW slot (angle -π/2 - 2π/length, upper-LEFT).
+test("bitPositionRotated — 1 step CW shifts bit 0 to angle -π/2 + 2π/length", () => {
+  // ADR 003 §TM register ring: rotation is CW (matches inboil
+  // TuringSheet's positive `rotationDeg = cumulativeSteps * stepAngle`
+  // applied via SVG `transform: rotate()`, which is CW in screen
+  // coordinates). bit 0 starts at top (angle -π/2) and after 1 step
+  // lands at the next CW slot (angle -π/2 + 2π/length, upper-RIGHT).
   const g = computeGeometry(200, 200, 8);
-  const expectedAngle = -Math.PI / 2 - (Math.PI * 2) / 8;
+  const expectedAngle = -Math.PI / 2 + (Math.PI * 2) / 8;
   const ex = g.cx + g.radius * Math.cos(expectedAngle);
   const ey = g.cy + g.radius * Math.sin(expectedAngle);
   const p = bitPositionRotated(0, g, 1);
@@ -178,13 +178,14 @@ test("readingIndexAt — pre-step (0): bit 0 sits at top by convention", () => {
   assert.equal(readingIndexAt(0, 8), 0);
 });
 
-test("readingIndexAt — 1 step CCW puts bit 1 under the pointer", () => {
-  // CCW rotation by stepAngle moves the bit originally at upper-RIGHT
-  // (logical index 1, angle -π/2 + 2π/length) up to the top slot. So
-  // after k steps, the bit at the pointer has logical index `k mod length`.
-  assert.equal(readingIndexAt(1, 8), 1);
-  assert.equal(readingIndexAt(2, 8), 2);
-  assert.equal(readingIndexAt(7, 8), 7);
+test("readingIndexAt — 1 step CW puts bit (length-1) under the pointer", () => {
+  // CW rotation by stepAngle moves the bit originally at upper-LEFT
+  // (logical index length-1, angle -π/2 - 2π/length) up to the top slot.
+  // So after k steps, the bit at the pointer has logical index
+  // `(length - k) mod length`.
+  assert.equal(readingIndexAt(1, 8), 7);
+  assert.equal(readingIndexAt(2, 8), 6);
+  assert.equal(readingIndexAt(7, 8), 1);
 });
 
 test("readingIndexAt — wraps with period length", () => {

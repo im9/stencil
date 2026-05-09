@@ -93,13 +93,17 @@ export function bitPosition(index: number, geometry: RingGeometry): Point {
   };
 }
 
-// Revolver model (ADR 003 §TM register ring): the bit ring rotates CCW
-// by `cumulativeSteps * (2π/length)` while a fixed pointer marks the read
-// position at top. CCW matches the engine's shift direction
-// (`register >>> 1` moves indices DOWN, so the consumed bit flows away
-// from the pointer in the CCW direction). cumulativeSteps is the host's
-// monotonic position counter (host.position), passed through unchanged
-// via the bridge's `ringHead` outlet.
+// Revolver model (ADR 003 §TM register ring, amended 2026-05-09): the
+// bit ring rotates CW by `cumulativeSteps * (2π/length)` while a fixed
+// pointer marks the read position at top. CW matches inboil
+// TuringSheet's positive `rotationDeg = cumulativeSteps * stepAngle`
+// applied via SVG `transform: rotate()` (positive deg = CW in screen
+// coordinates). Engine shift direction (`register[i] = register[i-1]`,
+// indices UP) is independent of visual rotation direction; CW is the
+// musically natural choice (clock-hand convention = time advancing).
+// cumulativeSteps is the host's monotonic position counter
+// (host.position), passed through unchanged via the bridge's
+// `ringHead` outlet.
 export function bitPositionRotated(
   index: number,
   geometry: RingGeometry,
@@ -108,7 +112,7 @@ export function bitPositionRotated(
   const stepAngle = (Math.PI * 2) / geometry.length;
   const angle =
     (index / geometry.length) * Math.PI * 2 -
-    Math.PI / 2 -
+    Math.PI / 2 +
     cumulativeSteps * stepAngle;
   return {
     x: geometry.cx + geometry.radius * Math.cos(angle),
@@ -132,16 +136,16 @@ export function pointerTip(geometry: RingGeometry): Point {
 }
 
 // Logical bit index whose dot currently sits under the fixed top pointer
-// after CCW rotation by `cumulativeSteps`. With CCW rotation, the bit at
-// the top has index `cumulativeSteps mod length` (each step advances the
-// pointer-bit by 1).
+// after CW rotation by `cumulativeSteps`. With CW rotation, the bit at
+// the top has index `(length - cumulativeSteps) mod length` — each step
+// pulls the next CCW-neighbour into the pointer slot.
 export function readingIndexAt(
   cumulativeSteps: number,
   length: number,
 ): number {
   if (length <= 0) return -1;
   const k = Math.floor(cumulativeSteps);
-  return ((k % length) + length) % length;
+  return (((length - k) % length) + length) % length;
 }
 
 export function hitTestRotated(

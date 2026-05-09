@@ -159,17 +159,41 @@ marking the read head. A salmon **halo** ring is drawn just outside the
 bit currently under the pointer (preserves the bit's on/off rendering
 inside, unlike inboil's `.bit-reading` which forces hollow).
 
-**Animation — revolver model (mirrors inboil), CCW:** on each step the
-bit ring rotates **counter-clockwise** by `2π / length`. CCW is chosen
-to match the engine's shift direction (`register >>> 1` shifts indices
-*down*, so the bit consumed at index 0 visually flows into the
-playhead from the upper-right and out toward upper-left). Implementation:
-`bitPositionRotated(idx, g, cumulativeSteps)` *subtracts*
-`cumulativeSteps · stepAngle` from each bit's base angle.
-`cumulativeSteps` is the host's monotonic `position` counter (resets
-to 0 on transport start/stop and seed change), arriving via the
-bridge's `ringHead` outlet unchanged. The pointer is drawn last so it
-overlays the ring without interaction.
+**Animation — revolver model (mirrors inboil), CW:** on each step the
+bit ring rotates **clockwise** by `2π / length`. CW mirrors inboil
+TuringSheet's positive `rotationDeg = cumulativeSteps · stepAngle`
+applied via SVG `transform: rotate()` (positive deg = CW in screen
+coordinates). Implementation: `bitPositionRotated(idx, g,
+cumulativeSteps)` *adds* `cumulativeSteps · stepAngle` to each bit's
+base angle. `cumulativeSteps` is the host's monotonic `position`
+counter (resets to 0 on transport start/stop and seed change),
+arriving via the bridge's `ringHead` outlet unchanged. The pointer
+is drawn last so it overlays the ring without interaction.
+
+> **Amended 2026-05-09 — direction flip CCW → CW (porting bug fix).**
+> The original wording said CCW with the rationale "matches the
+> engine's shift direction (`register >>> 1` shifts indices down, so
+> the bit consumed at index 0 visually flows away from the pointer
+> in the CCW direction)." Both halves were wrong:
+>
+> 1. **inboil rotates CW**, not CCW (verified in
+>    `~/src/front/inboil/src/lib/components/TuringSheet.svelte:128-130`:
+>    `rotationDeg = cumulativeSteps * stepAngle` is positive, and SVG
+>    `transform: rotate(positiveDeg)` is CW in screen coords). The
+>    "mirrors inboil" claim was a porting misread.
+> 2. **Engine shift direction is independent of visual rotation
+>    direction.** The shift register can be visualized rotating
+>    either way and still represent the same algorithm. The
+>    "CCW matches the engine" framing was post-hoc rationalisation,
+>    not a real constraint. CW is the musically natural choice
+>    (clock-hand convention = time advancing).
+>
+> Per `feedback_porting_bug_amend_not_supersede`: amended in place,
+> not superseded. Code changes landed in `registerRing.logic.ts`
+> (`bitPositionRotated` sign flip; `readingIndexAt` formula flipped
+> from `k mod length` to `(length - k) mod length`) and mirrored
+> into `registerRing.jsui.js`. Tests in
+> `host/ui/registerRing.logic.test.ts` updated to assert CW.
 
 **Active-step flash (bit-tap trigger):** the audible trigger of each
 step is determined by the bit currently under the pointer (the LSB of
