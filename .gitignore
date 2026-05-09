@@ -9,6 +9,16 @@ vst/build/
 m4l/engine/dist/
 m4l/host/dist/
 
+# m4l n4m bundled entry — regenerate with `pnpm bundle:host` (run via
+# `pnpm bake`). Source is m4l/stencil.entry.mjs. See ADR 006 §Release
+# artifact production.
+m4l/stencil.mjs
+
 # Ableton Live project folder (auto-created on first device load, named
 # after the .amxd: Stencil Project/).
 m4l/Stencil*Project/
+
+# Frozen release artefact directory — populated by the manual snowflake
+# (Freeze) step in Max as part of `make release` (see ADR 006 §Release
+# artifact production). Regenerated per release; not committed.
+dist/

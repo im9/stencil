@@ -3,6 +3,12 @@
 ## Status: Proposed
 
 **Created**: 2026-05-07
+**Revised**: 2026-05-08 — added §Release artifact tooling (esbuild
+bundle of the n4m entry, root `Makefile`, `dist/` path) so the
+§Distribution checklist has a concrete shippable artifact to upload.
+The bundle step is necessary because Max Freeze does not follow ES
+module `import` statements; the same mitigation is in place on the
+QT side via oedipa-style ADR 007 §Phase 5 (cross-repo reference).
 
 This ADR is the post-split Stencil-side home for the items deferred
 from [archived ADR 003][adr3] (m4l UI design — manual Live checks)
@@ -43,6 +49,26 @@ The bullets here are **strict carry-forward** from 003 / 004:
 - Wording adjusted only for the post-split single-device naming
   ("on both devices" → singular; `Stencil-TM.amxd` → `Stencil.amxd`).
 
+The 2026-05-08 revision adds the build/freeze plumbing that turns
+§Distribution from "upload an artifact" into a runnable flow. The
+dev-mode `m4l/Stencil.amxd` produced by `pnpm bake` references
+sibling JS on disk and only loads on the build machine. To ship, the
+device must be frozen in Max so every referenced file is inlined.
+Two coupled prerequisites surfaced when setting this up:
+
+- **Max Freeze does NOT follow ES module `import` statements.** This
+  was empirically established on the QT side in oedipa-007 Phase 5;
+  the same constraint applies here. The current `m4l/stencil.mjs`
+  imports `./host/dist/host/bridge.js`, whose chain reaches `host.js`
+  / `engine/turing.js` / `engine/rng.js`. Freeze captures only the
+  entry; the import targets are lost in the frozen `.amxd`. The
+  mitigation is to pre-bundle the entry with esbuild before bake,
+  with `max-api` as the only external (Max-injected at runtime).
+- **There is no repo-level command for producing the shippable
+  artifact.** Adding a root `Makefile` with `make release` mirrors
+  oedipa's flow: `pnpm -r build && pnpm bake` → `dist/` ready →
+  manual snowflake freeze in Max → save as `dist/Stencil.amxd`.
+
 ## Decision
 
 Stencil m4l v1 ships when every checkbox in §Verification AND
@@ -62,6 +88,50 @@ verifies the bake produces the artifact (ADR 005 Phase 3 checklist),
 so this ADR carries only the load-cleanly + bake:check items, not a
 duplicate "bake produces .amxd" item.
 
+### Release artifact production (added 2026-05-08)
+
+The shippable artifact `dist/Stencil.amxd` is produced by:
+
+1. **`pnpm bundle:host`** — esbuild bundles `m4l/stencil.entry.mjs`
+   into `m4l/stencil.mjs`, with `max-api` as the only external. The
+   entry file `stencil.entry.mjs` holds the wiring currently in
+   `stencil.mjs`; the bundled `stencil.mjs` is what `[node.script]`
+   actually loads (the `.maxpat` reference stays as
+   `node.script stencil.mjs` — bare-sibling form per ADR 004
+   §Patcher path conventions, no `.maxpat` change required).
+2. **`pnpm bake`** — runs `bundle:host` first, then writes
+   `m4l/Stencil.amxd` referencing the bundled `stencil.mjs` as a
+   sibling. This is the developer iteration loop; the produced
+   `.amxd` only loads on the build machine because the bundle still
+   sits on disk next to it.
+3. **`make release`** (from repo root) — runs `cd m4l && pnpm -r
+   build && pnpm bake` and ensures `dist/` exists. Then prints
+   instructions for the manual freeze step. Default `make` target is
+   `release`, aliased to `release-m4l` (mirrors oedipa, leaves room
+   for a future `release-vst`).
+4. **Manual freeze** — open `m4l/Stencil.amxd` in Max → click the
+   snowflake (Freeze) button in the patcher toolbar → File → Save As
+   `dist/Stencil.amxd`. The frozen file is self-contained: every
+   referenced JS (bundled `stencil.mjs`, `registerRing.jsui.js`,
+   `registerRing.subpatcher.maxpat`) is inlined into the `.amxd`
+   binary and runs on any Live install regardless of where the user
+   drops it on disk.
+
+Freeze is a manual Max action; Max provides no CLI freeze. The
+distribution flow is therefore inherently two-stage: automated
+build/bake for development, manual freeze for release. Acceptable per
+the same reasoning as oedipa-007 §Out of scope — freezes happen per
+release, not per edit.
+
+Why bundle output is `.mjs`, not `.js`: the freeze sandbox extracts
+the inlined script to a tempdir without any sibling `package.json`,
+so a `.js` file would be interpreted as CommonJS and the
+`import Max from "max-api"` line would fail to parse, leaving
+`[node.script]` permanently in "Node script not ready" state. `.mjs`
+is unconditionally ESM. Empirically established by oedipa-007 Phase 5;
+the existing stencil entry already uses `.mjs` for the same reason
+(per the header comment in `m4l/stencil.mjs`).
+
 ## Scope
 
 ### In scope
@@ -72,6 +142,13 @@ duplicate "bake produces .amxd" item.
   bake:check, TM smoke, transport hung-note discipline)
 - Stencil-side items carried from 004 §Distribution (channel,
   screenshot, demo, copy, upload)
+- esbuild bundle step (`m4l/stencil.entry.mjs` → `m4l/stencil.mjs`)
+  wired into `pnpm bake` (added 2026-05-08)
+- Repo-root `Makefile` with `make release` / `make release-m4l`
+  targets producing `dist/` (added 2026-05-08)
+- Cross-path manual freeze verification on `dist/Stencil.amxd`
+  (added 2026-05-08)
+- CLAUDE.md §Build/m4l update for the freeze flow (added 2026-05-08)
 
 ### Out of scope
 
@@ -89,10 +166,76 @@ duplicate "bake produces .amxd" item.
 
 ## Implementation checklist
 
-This ADR has no code-side implementation. The substantive work is
-the checklists in §Verification and §Distribution below; the ADR
-flips to *Implemented* once every checkbox in those two sections is
+§Verification and §Distribution below are the manual / release-process
+gates. The build-side work added in the 2026-05-08 revision (esbuild
+bundle + Makefile + cross-path verification) is phased here per
+CLAUDE.md TDD gates. The ADR flips to *Implemented* once every
+checkbox in this section AND in §Verification AND in §Distribution is
 `[x]`.
+
+### Phase 1 — Entry split + bundle wiring
+
+- [ ] Move current contents of `m4l/stencil.mjs` to
+      `m4l/stencil.entry.mjs`. Internal imports (`max-api`,
+      `./host/dist/host/bridge.js`) are unchanged. Update header
+      comment to reflect the new entry/bundle split (path-conventions
+      language stays valid; the bundled output is what `[node.script]`
+      ultimately loads).
+- [ ] Add `esbuild` as devDependency at the m4l workspace root
+      (`m4l/package.json`).
+- [ ] Add `bundle:host` script to `m4l/package.json`:
+      `esbuild stencil.entry.mjs --bundle --platform=node
+      --format=esm --external:max-api --outfile=stencil.mjs`.
+- [ ] Update `bake` script: `bake = pnpm bundle:host && node
+      scripts/maxpat-to-amxd.mjs`.
+- [ ] Add `m4l/stencil.mjs` to `.gitignore` (build artefact). Keep
+      `m4l/stencil.entry.mjs` tracked. Remove the now-stale committed
+      `m4l/stencil.mjs` from git.
+- [ ] `.maxpat` `[node.script]` filename stays `stencil.mjs` — no
+      patcher edit, abs-path scrub guard test continues to pass.
+
+### Phase 2 — Bundle guard test
+
+- [ ] Add `m4l/host/stencil-bundle.test.ts` (picked up by
+      `pnpm -r test`): assert that `m4l/stencil.mjs`, when present,
+      has only `max-api` as a remaining external import. Skip on
+      fresh checkouts where the bundle hasn't been built yet (mirrors
+      oedipa's `oedipa-host-bundle.test.ts` skip semantics).
+- [ ] Run `pnpm -r build && pnpm bake && pnpm -r test`: bundle test
+      passes; existing host / engine / bake tests stay green.
+
+### Phase 3 — Root Makefile + dist/
+
+- [ ] Add repo-root `Makefile` with `release` (default → depends on
+      `release-m4l`) and `release-m4l` targets. `release-m4l` runs
+      `cd m4l && pnpm -r build && pnpm bake`, runs `mkdir -p dist`,
+      and prints the snowflake-freeze instructions (full target
+      path: `$(CURDIR)/dist/Stencil.amxd`).
+- [ ] Add `dist/` to repo-root `.gitignore` (frozen artefact is
+      regenerated from source per release; do not commit binaries).
+- [ ] Update CLAUDE.md §Build/m4l with a "Distribution (release
+      builds)" subsection: `make release` from repo root → snowflake
+      in Max → `dist/Stencil.amxd`; mention the Freeze-doesn't-follow-
+      imports constraint and that the bundle step is the mitigation.
+
+### Phase 4 — Cross-path freeze verification
+
+- [ ] Run `make release` on a clean checkout. Verify
+      `m4l/Stencil.amxd` (dev) is produced and `dist/` exists with no
+      errors.
+- [ ] Open `m4l/Stencil.amxd` in Max → click snowflake → Save As
+      `dist/Stencil.amxd`.
+- [ ] Cross-path test: copy `dist/Stencil.amxd` to a path outside
+      the repo (e.g. `~/Downloads/`). Drag into a fresh Live track.
+      Confirm: Max console reports `stencil: stencil.mjs loaded`,
+      the `ready 1` outlet fires, parameter dump arrives, transport
+      play produces MIDI through the device, and the register ring
+      jsui renders + advances on transport.
+- [ ] (Optional, only if a second machine is conveniently available)
+      Repeat the cross-path test on a second machine. Not blocking;
+      the cross-path test on a single machine catches the same class
+      of bug because the un-frozen `.amxd` would fail to resolve its
+      sibling JS at the new path.
 
 ## Verification
 

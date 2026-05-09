@@ -127,9 +127,29 @@ loads `dist/` artifacts via `[node.script stencil.mjs]`, so run
 `pnpm -r build` after engine or host changes (and `pnpm bake` after
 `.maxpat` edits).
 
+The `[node.script]` filename `stencil.mjs` resolves to the bundled
+output of `pnpm bundle:host` (esbuild), not the tracked source
+`stencil.entry.mjs`. The bundle inlines the host + engine import
+chain because Max's Freeze step does NOT follow ES `import`
+statements (verified by oedipa-007 Phase 5); without bundling, the
+shipped frozen `.amxd` would lose its dependencies. `pnpm bake`
+runs `bundle:host` first, so the dev iteration loop is unchanged.
+
 **Do NOT add `max-api` to dependencies.** It's injected by Max at
-runtime; the npm version conflicts with the injected one. (Same
-convention as oedipa.)
+runtime; the npm version conflicts with the injected one. The
+bundle config marks it `--external:max-api` so esbuild leaves the
+import statement intact for Max to resolve. (Same convention as
+oedipa.)
+
+**Distribution (release builds).** `make release` (from repo root)
+runs build + bake and prepares `dist/`. The baked dev `.amxd`
+references the bundled `stencil.mjs` as a sibling on disk, so it
+only loads on the build machine. To ship: open `m4l/Stencil.amxd`
+in Max → click the **snowflake (Freeze)** button in the patcher
+toolbar (inlines every referenced JS into the `.amxd` binary) →
+*File → Save As* `dist/Stencil.amxd`. The frozen file is
+self-contained and works on any Live install. See ADR 006
+§Release artifact production.
 
 ### vst/
 
