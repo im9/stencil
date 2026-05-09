@@ -36,7 +36,7 @@ mgraphics.init()
 mgraphics.relative_coords = 0
 mgraphics.autofill = 0
 
-post('registerRing.jsui.js loaded build=2026-05-07 revolver-ccw+flash\n')
+post('registerRing.jsui.js loaded build=2026-05-09 revolver-cw+flash\n')
 
 // --- Constants (mirror m4l/host-tm/ui/registerRing.logic.ts) ---
 

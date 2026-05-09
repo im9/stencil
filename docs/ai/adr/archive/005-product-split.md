@@ -149,7 +149,7 @@ and oedipa:
   > under the im9 label rather than revenue drivers, in the same
   > posture as oedipa." That framing held while only the m4l
   > target was being shipped. With native-plugin distribution
-  > coming into scope, the cost structure differs(cross-platform
+  > coming into scope, the cost structure differs (cross-platform
   > compatibility, code signing, notarization), so the m4l brand-
   > promo posture is preserved while VST3 / AU / CLAP move to
   > paid distribution. Per

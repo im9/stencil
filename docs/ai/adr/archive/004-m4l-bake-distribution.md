@@ -5,6 +5,16 @@
 **Created**: 2026-05-02
 **Implemented**: 2026-05-07 (bake script + path conventions + abs-path / external-ref guard tests shipped; both devices bake to .amxd. argv parameterization obsolete post-split — replaced per-repo by ADR 005 Phase 2/3 single-product bake. §Distribution and device-smoke items move to per-product distribution ADRs in each post-split repo.)
 
+> **Pricing posture note (2026-05-09)** — references in this ADR
+> to "free distribution" / "im9 / free distribution" (lines 148,
+> 171, 223) were accurate at the time of writing. The canonical
+> posture has since been amended in
+> [ADR 005 §Distribution posture](005-product-split.md#distribution-posture)
+> (2026-05-09 in-place amendment): m4l builds remain free,
+> VST3 / AU / CLAP builds are planned as paid releases. ADR 004's
+> wording is preserved as historical record per
+> `feedback_porting_bug_amend_not_supersede`.
+
 This ADR specifies how the `.maxpat` source files are baked into
 distributable `.amxd` artifacts, the path / external-reference conventions
 inside the patcher JSON, the guard tests that defend the bake pipeline,

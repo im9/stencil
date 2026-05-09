@@ -465,7 +465,7 @@ Three vertical columns, header band on top:
 └────────────────────────────────────────────────────────────────┘
   ~280w              ~280w                  ~280w
   GENERATE: LEN numbox │ LO/HI numbox row │ MODE/SUBD menu row │ LOCK/DENS dial pair
-  REGISTER: 1 jsui (registerRing) — fixed ▼ pointer + CCW rotating bit ring (Mode A frozen)
+  REGISTER: 1 jsui (registerRing) — fixed ▼ pointer + CW rotating bit ring (Mode A frozen)
   I/O:       TRG menu │ IN/OUT numboxes │ VEL/SEED numboxes │ GATE dial
 ```
 
