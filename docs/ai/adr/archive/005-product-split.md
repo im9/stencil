@@ -126,12 +126,36 @@ and oedipa:
   private) is provisioned at split time as part of Phase 2 so the
   cloned working tree has a real GitHub upstream from day one;
   flipping to public happens at distribution time.
-- **Pricing** — free distribution. Both Stencil and Pointsman serve
-  as brand-presence products under the im9 label rather than revenue
-  drivers, in the same posture as oedipa. Distribution-channel
-  bundling, listing copy, and per-channel mechanics remain as in
-  ADR 004's lineage (carried forward into per-product distribution
-  ADRs).
+- **Pricing** — split by target as of 2026-05-09 amendment:
+  - **M4L builds** ship **free** as brand-promo, in the same posture
+    as oedipa's m4l. Distributed via per-product slim public repos
+    (`im9/stencil-m4l`, `im9/pointsman-m4l`) with `Stencil.amxd` /
+    `Pointsman.amxd` hosted on GitHub Releases.
+  - **VST3 / AU / CLAP builds** are planned as **paid** releases
+    (price / channel TBD). Native-plugin investment (cross-platform
+    DAW compatibility, code signing, notarization) is the rationale
+    for the split. Same product, same musical experience as the
+    free m4l (cross-target conformance is preserved per the test
+    vectors in `docs/ai/`); the paid form factor pays for the
+    native build effort.
+
+  Distribution-channel bundling, listing copy, and per-channel
+  mechanics remain as in ADR 004's lineage (carried forward into
+  per-product distribution ADRs).
+
+  > **Amended 2026-05-09 — pricing posture split (m4l free /
+  > native paid).** The original wording said "free distribution.
+  > Both Stencil and Pointsman serve as brand-presence products
+  > under the im9 label rather than revenue drivers, in the same
+  > posture as oedipa." That framing held while only the m4l
+  > target was being shipped. With native-plugin distribution
+  > coming into scope, the cost structure differs(cross-platform
+  > compatibility, code signing, notarization), so the m4l brand-
+  > promo posture is preserved while VST3 / AU / CLAP move to
+  > paid distribution. Per
+  > `feedback_porting_bug_amend_not_supersede`: amended in place,
+  > not superseded. oedipa's posture is owned by the oedipa repo
+  > and is not cascaded from here.
 
 ### Repository split
 

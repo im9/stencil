@@ -108,4 +108,7 @@ individual ADRs only when the relevant area is being touched.
 
 ## License
 
-[MIT](LICENSE). Free distribution under the `im9` label.
+[MIT](LICENSE). The Max for Live build ships free under the `im9`
+label (see [`im9/stencil-m4l`](https://github.com/im9/stencil-m4l)
+for the binary distribution). Native plugin builds (VST3 / AU /
+CLAP) are planned as paid releases.
