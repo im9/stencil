@@ -175,62 +175,63 @@ checkbox in this section AND in §Verification AND in §Distribution is
 
 ### Phase 1 — Entry split + bundle wiring
 
-- [ ] Move current contents of `m4l/stencil.mjs` to
+- [x] Move current contents of `m4l/stencil.mjs` to
       `m4l/stencil.entry.mjs`. Internal imports (`max-api`,
       `./host/dist/host/bridge.js`) are unchanged. Update header
       comment to reflect the new entry/bundle split (path-conventions
       language stays valid; the bundled output is what `[node.script]`
       ultimately loads).
-- [ ] Add `esbuild` as devDependency at the m4l workspace root
+- [x] Add `esbuild` as devDependency at the m4l workspace root
       (`m4l/package.json`).
-- [ ] Add `bundle:host` script to `m4l/package.json`:
+- [x] Add `bundle:host` script to `m4l/package.json`:
       `esbuild stencil.entry.mjs --bundle --platform=node
       --format=esm --external:max-api --outfile=stencil.mjs`.
-- [ ] Update `bake` script: `bake = pnpm bundle:host && node
+- [x] Update `bake` script: `bake = pnpm bundle:host && node
       scripts/maxpat-to-amxd.mjs`.
-- [ ] Add `m4l/stencil.mjs` to `.gitignore` (build artefact). Keep
+- [x] Add `m4l/stencil.mjs` to `.gitignore` (build artefact). Keep
       `m4l/stencil.entry.mjs` tracked. Remove the now-stale committed
       `m4l/stencil.mjs` from git.
-- [ ] `.maxpat` `[node.script]` filename stays `stencil.mjs` — no
+- [x] `.maxpat` `[node.script]` filename stays `stencil.mjs` — no
       patcher edit, abs-path scrub guard test continues to pass.
 
 ### Phase 2 — Bundle guard test
 
-- [ ] Add `m4l/host/stencil-bundle.test.ts` (picked up by
+- [x] Add `m4l/host/stencil-bundle.test.ts` (picked up by
       `pnpm -r test`): assert that `m4l/stencil.mjs`, when present,
       has only `max-api` as a remaining external import. Skip on
       fresh checkouts where the bundle hasn't been built yet (mirrors
       oedipa's `oedipa-host-bundle.test.ts` skip semantics).
-- [ ] Run `pnpm -r build && pnpm bake && pnpm -r test`: bundle test
+- [x] Run `pnpm -r build && pnpm bake && pnpm -r test`: bundle test
       passes; existing host / engine / bake tests stay green.
 
 ### Phase 3 — Root Makefile + dist/
 
-- [ ] Add repo-root `Makefile` with `release` (default → depends on
+- [x] Add repo-root `Makefile` with `release` (default → depends on
       `release-m4l`) and `release-m4l` targets. `release-m4l` runs
       `cd m4l && pnpm -r build && pnpm bake`, runs `mkdir -p dist`,
       and prints the snowflake-freeze instructions (full target
       path: `$(CURDIR)/dist/Stencil.amxd`).
-- [ ] Add `dist/` to repo-root `.gitignore` (frozen artefact is
+- [x] Add `dist/` to repo-root `.gitignore` (frozen artefact is
       regenerated from source per release; do not commit binaries).
-- [ ] Update CLAUDE.md §Build/m4l with a "Distribution (release
+- [x] Update CLAUDE.md §Build/m4l with a "Distribution (release
       builds)" subsection: `make release` from repo root → snowflake
       in Max → `dist/Stencil.amxd`; mention the Freeze-doesn't-follow-
       imports constraint and that the bundle step is the mitigation.
 
 ### Phase 4 — Cross-path freeze verification
 
-- [ ] Run `make release` on a clean checkout. Verify
+- [x] Run `make release` on a clean checkout. Verify
       `m4l/Stencil.amxd` (dev) is produced and `dist/` exists with no
       errors.
-- [ ] Open `m4l/Stencil.amxd` in Max → click snowflake → Save As
-      `dist/Stencil.amxd`.
-- [ ] Cross-path test: copy `dist/Stencil.amxd` to a path outside
+- [x] Open `m4l/Stencil.amxd` in Max → click snowflake → Save As
+      `dist/Stencil.amxd`. *(Done 2026-05-09; frozen artefact 80192
+      bytes vs 34261-byte dev .amxd, confirming JS inlining occurred.)*
+- [x] Cross-path test: copy `dist/Stencil.amxd` to a path outside
       the repo (e.g. `~/Downloads/`). Drag into a fresh Live track.
       Confirm: Max console reports `stencil: stencil.mjs loaded`,
       the `ready 1` outlet fires, parameter dump arrives, transport
       play produces MIDI through the device, and the register ring
-      jsui renders + advances on transport.
+      jsui renders + advances on transport. *(Verified 2026-05-09.)*
 - [ ] (Optional, only if a second machine is conveniently available)
       Repeat the cross-path test on a second machine. Not blocking;
       the cross-path test on a single machine catches the same class
@@ -243,33 +244,33 @@ Manual checks against Ableton Live.
 
 Carried from [ADR 003 §Verification][adr3] (TM-side subset):
 
-- [ ] Each `live.*` parameter visible in Live's Device parameter list
-- [ ] Each `live.*` parameter responds to MIDI map (Cmd-M) and
+- [x] Each `live.*` parameter visible in Live's Device parameter list
+- [x] Each `live.*` parameter responds to MIDI map (Cmd-M) and
       automation
-- [ ] Saving a Live set, closing, reopening preserves every
+- [x] Saving a Live set, closing, reopening preserves every
       parameter value
-- [ ] Right-click → "Show in Browser" / preset save round-trips
+- [x] Right-click → "Show in Browser" / preset save round-trips
       values
-- [ ] At Live 100% UI scale, the Stencil device renders within the
+- [x] At Live 100% UI scale, the Stencil device renders within the
       1000×180 presentation strip without truncation or scrollbars
-- [ ] At Live 150% UI scale, no widget label or jsui content is
+- [x] At Live 150% UI scale, no widget label or jsui content is
       clipped (or document that 150% is out of v1 scope if Max
       can't handle it)
-- [ ] In Live's Light theme, the inboil palette reads correctly
-- [ ] In Live's Dark theme, the inboil palette remains readable
+- [x] In Live's Light theme, the inboil palette reads correctly
+- [x] In Live's Dark theme, the inboil palette remains readable
       (or decision recorded that v1 ships Light-theme-tuned and
       Dark is v2)
-- [ ] TM bit ring: clickable interaction works, read-head advances
+- [x] TM bit ring: clickable interaction works, read-head advances
       on transport, register change reflects in jsui within one step
 
 Carried from [ADR 004 §Bake outputs][adr4] (TM-side subset, with
 post-split renaming):
 
-- [ ] `Stencil.amxd` loads in Live without console errors
-- [ ] `pnpm bake:check` passes on a fresh checkout
-- [ ] TM smoke: trigger modes `auto` / `gate` / `seed` each produce
+- [x] `Stencil.amxd` loads in Live without console errors
+- [x] `pnpm bake:check` passes on a fresh checkout
+- [x] TM smoke: trigger modes `auto` / `gate` / `seed` each produce
       sound in Live (covers ADR 002 host behavior in the real device)
-- [ ] Transport stop / start / scrub leaves no hung notes on the
+- [x] Transport stop / start / scrub leaves no hung notes on the
       Stencil device
 
 ## Distribution
