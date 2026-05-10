@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "Editor/PluginEditor.h"
 #include "Plugin/Parameters.h"
-#include "PluginEditor.h"
 
 namespace stencil::plugin
 {
@@ -22,6 +22,12 @@ StencilProcessor::StencilProcessor()
     sequencer_.setParams(initial);
     lastSeed_ = static_cast<int>(initial.seed);
     lastLength_ = initial.length;
+
+    // Seed the editor snapshot with the freshly-created register so the
+    // ring view shows real bits at first paint (before processBlock has
+    // had a chance to publish). Otherwise the editor opens to an all-
+    // empty ring even though the engine already has a non-zero register.
+    registerSnapshot_.store(sequencer_.getRegister(), std::memory_order_relaxed);
 }
 
 StencilProcessor::~StencilProcessor()
@@ -44,7 +50,7 @@ void StencilProcessor::releaseResources()
 
 juce::AudioProcessorEditor* StencilProcessor::createEditor()
 {
-    return new ::StencilEditor(*this);
+    return new editor::StencilEditor(*this);
 }
 
 void StencilProcessor::getStateInformation(juce::MemoryBlock& destData)
@@ -157,6 +163,12 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
         sequencer_.reset();
         lastSeed_ = static_cast<int>(params.seed);
         lastLength_ = params.length;
+        // Reset cumulative step counter so the ring rotation realigns with
+        // the new (seed, length) pair. Otherwise ROLL would advance the
+        // visual rotation past the loop boundary, making the head pointer
+        // sit on a meaningless bit position.
+        cumulativeStepsSnapshot_.store(0, std::memory_order_relaxed);
+        registerSnapshot_.store(sequencer_.getRegister(), std::memory_order_relaxed);
     }
 
     // Read transport state.
@@ -210,6 +222,16 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
         for (const auto& b : boundaries)
         {
             const engine::StepOutput o = sequencer_.processStep();
+
+            // Publish editor snapshots immediately after each step so the
+            // ring view, history strip, and center "fraction / note" text
+            // see the freshest state. ADR 007 §Threading: relaxed atomic
+            // store; eventually-consistent for the editor.
+            registerSnapshot_.store(sequencer_.getRegister(), std::memory_order_relaxed);
+            cumulativeStepsSnapshot_.fetch_add(1, std::memory_order_relaxed);
+            lastNoteSnapshot_.store(o.note, std::memory_order_relaxed);
+            lastActiveSnapshot_.store(o.active, std::memory_order_relaxed);
+
             if (!o.active)
                 continue;
 

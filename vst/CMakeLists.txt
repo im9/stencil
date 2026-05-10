@@ -39,21 +39,30 @@ add_library(stencil_engine STATIC
 target_include_directories(stencil_engine PUBLIC Source)
 target_compile_features(stencil_engine PUBLIC cxx_std_17)
 
-# --- Plugin core static library (ADR 007 Phase 2) -----------------------------
+# --- Plugin core static library (ADR 007 Phase 2 + Phase 3) -------------------
 # AudioProcessor + APVTS + Editor sources, separated from the JUCE plugin
 # bundle so the test binary can link them without pulling in
 # juce_audio_plugin_client (which provides the AU/VST3/CLAP wrappers and
 # is plugin-only). Matches oedipa's oedipa_plugin_core pattern.
-#
-# Phase 2 leaves PluginEditor.{cpp,h} at Source/ as a placeholder; Phase 3
-# reorganizes into Source/Editor/ alongside the inboil TuringSheet port.
 add_library(stencil_plugin_core STATIC
     Source/Plugin/PluginProcessor.cpp
     Source/Plugin/PluginProcessor.h
     Source/Plugin/Parameters.cpp
     Source/Plugin/Parameters.h
-    Source/PluginEditor.cpp
-    Source/PluginEditor.h
+    Source/Editor/PluginEditor.cpp
+    Source/Editor/PluginEditor.h
+    Source/Editor/Theme.cpp
+    Source/Editor/Theme.h
+    Source/Editor/RingLogic.cpp
+    Source/Editor/RingLogic.h
+    Source/Editor/RingView.cpp
+    Source/Editor/RingView.h
+    Source/Editor/ActionsView.cpp
+    Source/Editor/ActionsView.h
+    Source/Editor/RightRailView.cpp
+    Source/Editor/RightRailView.h
+    Source/Editor/HistoryView.cpp
+    Source/Editor/HistoryView.h
 )
 target_include_directories(stencil_plugin_core PUBLIC Source)
 target_link_libraries(stencil_plugin_core PUBLIC
@@ -94,8 +103,20 @@ target_sources(Stencil PRIVATE
     Source/Plugin/PluginProcessor.h
     Source/Plugin/Parameters.cpp
     Source/Plugin/Parameters.h
-    Source/PluginEditor.cpp
-    Source/PluginEditor.h
+    Source/Editor/PluginEditor.cpp
+    Source/Editor/PluginEditor.h
+    Source/Editor/Theme.cpp
+    Source/Editor/Theme.h
+    Source/Editor/RingLogic.cpp
+    Source/Editor/RingLogic.h
+    Source/Editor/RingView.cpp
+    Source/Editor/RingView.h
+    Source/Editor/ActionsView.cpp
+    Source/Editor/ActionsView.h
+    Source/Editor/RightRailView.cpp
+    Source/Editor/RightRailView.h
+    Source/Editor/HistoryView.cpp
+    Source/Editor/HistoryView.h
 )
 target_include_directories(Stencil PRIVATE Source)
 
@@ -125,6 +146,8 @@ add_executable(stencil_tests
     tests/test_Turing.cpp
     tests/test_Sequencer.cpp
     tests/test_Plugin.cpp
+    tests/test_RingLogic.cpp
+    tests/test_Editor.cpp
 )
 target_link_libraries(stencil_tests PRIVATE
     stencil_plugin_core   # transitively brings stencil_engine + JUCE modules

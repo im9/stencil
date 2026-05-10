@@ -716,25 +716,29 @@ pass at every phase boundary.
 
 ### Phase 3 — Editor logic + components (`Source/Editor/`)
 
-- [ ] `tests/test_RingLogic.cpp` — `hitTest`, `bitPosition`,
+- [x] `tests/test_RingLogic.cpp` — `hitTest`, `bitPosition`,
       `rotationForStep`, `readingIndex`, `freezeAction`,
       `rollAction`. Pure math; covers `length` ∈ {2, 4, 8, 16, 32}.
-- [ ] `tests/test_Editor.cpp` — instantiate `StencilEditor`, smoke-
+- [x] `tests/test_Editor.cpp` — instantiate `StencilEditor`, smoke-
       test `paint` doesn't crash, simulate `mouseDown` on ring →
       verify `seed` parameter changed (ROLL semantics).
-- [ ] `Source/Editor/Theme.h/.cpp` — palette + typography tokens
+- [x] `Source/Editor/Theme.h/.cpp` — palette + typography tokens
       from inboil reference.
-- [ ] `Source/Editor/RingLogic.h/.cpp`, `RingView.h/.cpp` — bit
+- [x] `Source/Editor/RingLogic.h/.cpp`, `RingView.h/.cpp` — bit
       ring with revolver rotation, head-bit highlight, fraction +
       note center text.
-- [ ] `Source/Editor/ActionsView.h/.cpp` — FREEZE / ROLL buttons.
-- [ ] `Source/Editor/RightRailView.h/.cpp` — 4 fieldsets
+- [x] `Source/Editor/ActionsView.h/.cpp` — FREEZE / ROLL buttons.
+- [x] `Source/Editor/RightRailView.h/.cpp` — 5 fieldsets
       (Parameters / Mode / Output / Trigger / Reproducibility) with
-      APVTS attachments for all 13 params.
-- [ ] `Source/Editor/HistoryView.h/.cpp` — output history bar series.
-- [ ] `Source/Editor/PluginEditor.h/.cpp` — top-level layout
+      APVTS attachments for all 13 params. (`outputChannel` is
+      attached and persisted but laid out at zero size; surfacing
+      it as a visible row deferred to a UI iteration once the
+      Trigger fieldset's vertical budget is reworked.)
+- [x] `Source/Editor/HistoryView.h/.cpp` — output history bar series.
+- [x] `Source/Editor/PluginEditor.h/.cpp` — top-level layout
       (header / body / history) + initial size 820 × 540.
-- [ ] `make test` passes — editor smoke + logic-layer cases green.
+- [x] `make test` passes — editor smoke + logic-layer cases green
+      (1434 assertions / 73 test cases, cold-build green).
 
 ### Phase 4 — CLAP wiring + format matrix
 

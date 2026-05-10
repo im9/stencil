@@ -14,6 +14,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <atomic>
 #include <cstdint>
 #include <vector>
 
@@ -58,6 +59,15 @@ public:
     // Test-facing inspection.
     const engine::Sequencer& getSequencerForTest() const { return sequencer_; }
 
+    // ── Editor-thread snapshots (ADR 007 §Threading) ──────────────────────
+    // Audio thread publishes after each step; editor thread reads with no
+    // locking. Eventually-consistent — the editor may show a register one
+    // step behind under load; never used as the source of MIDI emission.
+    engine::RegisterBits getRegisterSnapshot() const { return registerSnapshot_.load(std::memory_order_relaxed); }
+    int  getCumulativeSteps() const { return cumulativeStepsSnapshot_.load(std::memory_order_relaxed); }
+    int  getLastNote() const        { return lastNoteSnapshot_.load(std::memory_order_relaxed); }
+    bool getLastActive() const      { return lastActiveSnapshot_.load(std::memory_order_relaxed); }
+
 private:
     juce::AudioProcessorValueTreeState apvts;
 
@@ -83,6 +93,14 @@ private:
     // Detect transport stop edges across blocks for hung-note flush.
     bool wasPlaying_ = false;
     double sampleRate_ = 44100.0;
+
+    // Editor-thread snapshots, published after each step from processBlock.
+    // Default register=0 is fine: the editor reads "current register bits"
+    // and 0 just renders an all-empty ring until the first step lands.
+    std::atomic<engine::RegisterBits> registerSnapshot_{0};
+    std::atomic<int>  cumulativeStepsSnapshot_{0};
+    std::atomic<int>  lastNoteSnapshot_{60};
+    std::atomic<bool> lastActiveSnapshot_{false};
 
     // Range invariant listener: clamps rangeHi up when rangeLo crosses it,
     // and rangeLo down when rangeHi crosses it (matches m4l host setParam
