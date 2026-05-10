@@ -1,6 +1,6 @@
 #include "PluginEditor.h"
 
-StencilEditor::StencilEditor(StencilProcessor& p)
+StencilEditor::StencilEditor(stencil::plugin::StencilProcessor& p)
     : AudioProcessorEditor(&p), processor(p)
 {
     setSize(600, 400);

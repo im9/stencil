@@ -698,19 +698,21 @@ pass at every phase boundary.
 
 ### Phase 2 — Plugin core (`Source/Plugin/`)
 
-- [ ] `tests/test_Plugin.cpp` — APVTS layout assertions (every
+- [x] `tests/test_Plugin.cpp` — APVTS layout assertions (every
       param ID present, every range / default matches concept.md),
       state I/O round-trip (`getStateInformation` →
       `setStateInformation` returns identical tree).
-- [ ] `Source/Plugin/Parameters.h/.cpp` — APVTS layout factory.
-- [ ] `Source/Plugin/PluginProcessor.h/.cpp` — `prepareToPlay`,
+- [x] `Source/Plugin/Parameters.h/.cpp` — APVTS layout factory.
+- [x] `Source/Plugin/PluginProcessor.h/.cpp` — `prepareToPlay`,
       `processBlock` reading `AudioPlayHead`, calling Sequencer,
       writing `MidiBuffer`, `getStateInformation` /
       `setStateInformation`. APVTS listener clamps `rangeLo ≤ rangeHi`.
-- [ ] Define `stencil_plugin_core` static library in CMake (Plugin
+- [x] Define `stencil_plugin_core` static library in CMake (Plugin
       sources without `juce_audio_plugin_client`); link tests against it.
-- [ ] `make test` passes — APVTS round-trip + processing dispatch
-      verified without instantiating the AU/VST3/CLAP wrappers.
+- [x] `make test` passes — APVTS round-trip + processing dispatch
+      verified without instantiating the AU/VST3/CLAP wrappers
+      (743 assertions / 50 test cases, cold-build green; plugin
+      builds VST3 + AU + Standalone).
 
 ### Phase 3 — Editor logic + components (`Source/Editor/`)
 

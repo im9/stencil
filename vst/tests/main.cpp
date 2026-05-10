@@ -1,12 +1,20 @@
-// Test entry point. Phase 1 has engine-only tests with no JUCE dependency,
-// so we just run Catch2. Phase 3 (Editor tests) will add
-// juce::initialiseJuce_GUI() / shutdownJuce_GUI() around the session per
-// oedipa's pattern (Catch2 statics outlive JUCE statics → DeletedAtShutdown
-// abort if JUCE init lives at namespace scope).
+// Test entry point. Owns JUCE init/shutdown explicitly so the lifecycle is
+// scoped INSIDE main() rather than riding on static destructors. The
+// auto-static path (a `juce::ScopedJuceInitialiser_GUI` at namespace scope)
+// fires its destructor AFTER Catch2's statics have been torn down, which
+// turns DeletedAtShutdown::deleteAll() into a libmalloc abort. Initializing
+// here at main()-entry and shutting down before main()-return keeps both
+// systems alive at the same time. Pattern ported from oedipa.
 
 #include <catch2/catch_session.hpp>
 
+#include <juce_events/juce_events.h>
+#include <juce_gui_basics/juce_gui_basics.h>
+
 int main(int argc, char* argv[])
 {
-    return Catch::Session().run(argc, argv);
+    juce::initialiseJuce_GUI();
+    const int result = Catch::Session().run(argc, argv);
+    juce::shutdownJuce_GUI();
+    return result;
 }
