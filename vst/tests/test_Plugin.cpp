@@ -283,6 +283,48 @@ TEST_CASE("processBlock with playing transport emits noteOn at boundaries",
     CHECK(noteOnSampleOffsets[3] == 18000);
 }
 
+TEST_CASE("processBlock publishes mutated bit snapshot on shiftAndFlip flip",
+          "[plugin][processBlock][snapshot]")
+{
+    // ADR 007 §Audit follow-ups (mutated-bit salmon highlight). Per-step
+    // mutated bit index is published from the audio thread for the editor
+    // to render in salmon. Semantics:
+    //   - lock = 0 → flip prob = 1 → every shiftAndFlip flips bit0,
+    //     producing a new MSB at (length-1) that differs from old bit0.
+    //     mutatedBitSnapshot_ should be (length - 1).
+    //   - lock = 1 → flip prob = 0 → no flip ever; new MSB == old bit0;
+    //     snapshot stays at the sentinel -1.
+    StencilProcessor proc;
+    auto& apvts = proc.getApvts();
+    apvts.getParameter(pid::density)->setValueNotifyingHost(1.0f);
+
+    proc.prepareToPlay(48000.0, 24000);
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    ph.position.setIsPlaying(true);
+    proc.setPlayHead(&ph);
+
+    SECTION("lock = 0 → every step flips → snapshot is length-1")
+    {
+        apvts.getParameter(pid::lock)->setValueNotifyingHost(0.0f);
+        const int length = static_cast<int>(*apvts.getRawParameterValue(pid::length));
+        juce::AudioBuffer<float> audio(0, 24000);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+        CHECK(proc.getMutatedBitSnapshot() == length - 1);
+    }
+
+    SECTION("lock = 1 → no flips → snapshot stays at -1")
+    {
+        apvts.getParameter(pid::lock)->setValueNotifyingHost(1.0f);
+        juce::AudioBuffer<float> audio(0, 24000);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+        CHECK(proc.getMutatedBitSnapshot() == -1);
+    }
+}
+
 TEST_CASE("processBlock with stopped transport emits no notes",
           "[plugin][processBlock]")
 {

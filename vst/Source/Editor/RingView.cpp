@@ -77,6 +77,7 @@ void RingView::paint(juce::Graphics& g)
     const int steps = processor_.getCumulativeSteps();
     const int reading = RingLogic::readingIndex(steps, len);
     const float rotation = RingLogic::rotationDegrees(steps, len);
+    const int mutated = processor_.getMutatedBitSnapshot();
 
     // 1) Faint guide circle (inboil .turing-sheet svg <circle> at opacity 0.15).
     g.setColour(theme::fgAlpha(0.15f));
@@ -109,6 +110,7 @@ void RingView::paint(juce::Graphics& g)
         const auto p = RingLogic::bitPosition(i, len, geo.radius, centerPt);
         const bool bitOn = ((reg >> i) & 1u) != 0u;
         const bool isReading = (i == reading);
+        const bool isMutated = (i == mutated);
 
         juce::Rectangle<float> circle(p.x - geo.bitRadius, p.y - geo.bitRadius,
                                       geo.bitRadius * 2.0f, geo.bitRadius * 2.0f);
@@ -120,6 +122,13 @@ void RingView::paint(juce::Graphics& g)
             g.fillEllipse(circle);
             g.setColour(theme::olive);
             g.drawEllipse(circle, 2.5f);
+        } else if (isMutated) {
+            // Salmon: shiftAndFlip just flipped this bit (parity with
+            // inboil .bit-mutated). Takes precedence over bit on/off so
+            // the flip is unambiguous regardless of the new bit value.
+            g.setColour(theme::salmon);
+            g.fillEllipse(circle);
+            g.drawEllipse(circle, 1.5f);
         } else if (bitOn) {
             g.setColour(theme::olive);
             g.fillEllipse(circle);

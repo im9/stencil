@@ -68,6 +68,11 @@ public:
     int  getCumulativeSteps() const { return cumulativeStepsSnapshot_.load(std::memory_order_relaxed); }
     int  getLastNote() const        { return lastNoteSnapshot_.load(std::memory_order_relaxed); }
     bool getLastActive() const      { return lastActiveSnapshot_.load(std::memory_order_relaxed); }
+    // Index of the bit that shiftAndFlip just flipped, or -1 if no flip
+    // happened on the most recent step. Drives the salmon highlight in
+    // RingView (ADR 007 §Audit follow-ups, parity with inboil
+    // TuringSheet's `bit-mutated` style).
+    int  getMutatedBitSnapshot() const { return mutatedBitSnapshot_.load(std::memory_order_relaxed); }
 
 private:
     juce::AudioProcessorValueTreeState apvts;
@@ -115,6 +120,12 @@ private:
     std::atomic<int>  cumulativeStepsSnapshot_{0};
     std::atomic<int>  lastNoteSnapshot_{60};
     std::atomic<bool> lastActiveSnapshot_{false};
+    // -1 = no flip on the most recent step. Otherwise the bit index
+    // that shiftAndFlip just wrote with a value differing from the
+    // consumed LSB. Reset to -1 on prepareToPlay / setStateInformation
+    // / transport-start re-roll so a stale mutation doesn't linger
+    // through lifecycle resets.
+    std::atomic<int>  mutatedBitSnapshot_{-1};
 
     // Range invariant listener: clamps rangeHi up when rangeLo crosses it,
     // and rangeLo down when rangeHi crosses it (matches m4l host setParam

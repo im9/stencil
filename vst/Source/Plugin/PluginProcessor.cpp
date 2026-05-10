@@ -52,6 +52,7 @@ void StencilProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
     sampleRate_ = sampleRate;
     pendingNoteOffs_.clear();
     wasPlaying_ = false;
+    mutatedBitSnapshot_.store(-1, std::memory_order_relaxed);
 }
 
 void StencilProcessor::releaseResources()
@@ -82,6 +83,9 @@ void StencilProcessor::setStateInformation(const void* data, int sizeInBytes)
             // already raise the flush flag, but request explicitly so
             // identical-state restores (no listener fires) still flush.
             flushPendingRequested_.store(true, std::memory_order_release);
+            // Clear the salmon highlight: the loaded state has no recent
+            // mutation step to point at.
+            mutatedBitSnapshot_.store(-1, std::memory_order_relaxed);
         }
     }
 }
@@ -203,6 +207,7 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
         // sit on a meaningless bit position.
         cumulativeStepsSnapshot_.store(0, std::memory_order_relaxed);
         registerSnapshot_.store(sequencer_.getRegister(), std::memory_order_relaxed);
+        mutatedBitSnapshot_.store(-1, std::memory_order_relaxed);
     }
 
     // Read transport state.
@@ -255,6 +260,7 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
         sequencer_.reset();
         cumulativeStepsSnapshot_.store(0, std::memory_order_relaxed);
         registerSnapshot_.store(sequencer_.getRegister(), std::memory_order_relaxed);
+        mutatedBitSnapshot_.store(-1, std::memory_order_relaxed);
     }
 
     // Drain any noteOffs scheduled to fire in this block.
@@ -282,16 +288,38 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
 
         for (const auto& b : boundaries)
         {
+            // Capture register before stepping so we can detect whether
+            // shiftAndFlip flipped the bit (new MSB ≠ consumed LSB).
+            const auto preStepReg = sequencer_.getRegister();
+
             const engine::StepOutput o = sequencer_.processStep();
 
             // Publish editor snapshots immediately after each step so the
             // ring view, history strip, and center "fraction / note" text
             // see the freshest state. ADR 007 §Threading: relaxed atomic
             // store; eventually-consistent for the editor.
-            registerSnapshot_.store(sequencer_.getRegister(), std::memory_order_relaxed);
+            const auto postStepReg = sequencer_.getRegister();
+            registerSnapshot_.store(postStepReg, std::memory_order_relaxed);
             cumulativeStepsSnapshot_.fetch_add(1, std::memory_order_relaxed);
             lastNoteSnapshot_.store(o.note, std::memory_order_relaxed);
             lastActiveSnapshot_.store(o.active, std::memory_order_relaxed);
+
+            // Mutated bit: shiftAndFlip writes the (possibly flipped) old
+            // LSB into the new MSB at (length-1). If the LSB was flipped,
+            // the new MSB differs — that bit is the visualization target
+            // (parity with inboil TuringSheet's salmon highlight).
+            // Equal pre/post register means the seed-active branch took
+            // (no shiftAndFlip), or shift-and-no-flip happened to land an
+            // identical register; both render as "no mutation."
+            const int length = params.length;
+            const auto oldBit0 = preStepReg & 1u;
+            const auto newMsb = length > 0
+                ? (postStepReg >> (length - 1)) & 1u
+                : 0u;
+            const int mutated = (preStepReg != postStepReg && oldBit0 != newMsb)
+                ? length - 1
+                : -1;
+            mutatedBitSnapshot_.store(mutated, std::memory_order_relaxed);
 
             if (!o.active)
                 continue;
