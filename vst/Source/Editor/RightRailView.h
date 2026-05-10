@@ -69,9 +69,9 @@ private:
     juce::TextButton rollBtn_{ "[\xE2\x86\xBB]" };  // "[↻]" in UTF-8
 
     // Pill-radio plumbing: writes the chosen index back to the choice
-    // parameter, and updates pill toggle state from the parameter on
-    // a 15 Hz timer in the parent editor (no per-pill listener).
-    juce::Timer* pollTimer_ = nullptr;
+    // parameter; refreshPills() is driven from the inner PillSync timer
+    // (forward-declared below), polling at 15 Hz so external automation
+    // and preset recall sync without per-pill APVTS::Listener wiring.
     void writeChoice(const char* paramId, int idx);
     void refreshPills();
 

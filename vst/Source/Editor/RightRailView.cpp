@@ -133,8 +133,10 @@ RightRailView::RightRailView(plugin::StencilProcessor& p)
     rollBtn_.setColour(juce::TextButton::buttonColourId, theme::bg);
     rollBtn_.setColour(juce::TextButton::textColourOffId, theme::olive);
     rollBtn_.onClick = [this] {
-        auto rng = engine::seedRng(static_cast<uint64_t>(juce::Time::getMillisecondCounter()));
-        const int newSeed = RingLogic::rollAction(rng);
+        // juce::Random advances state per call so two presses in the
+        // same millisecond still produce different seeds (matches the
+        // ring + ActionsView ROLL paths).
+        const int newSeed = juce::Random::getSystemRandom().nextInt(0x7FFFFFFF);
         if (auto* p = processor_.getApvts().getParameter(plugin::pid::seed))
             p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(newSeed)));
     };

@@ -117,10 +117,20 @@ Stencil is monophonic — one note per step.
 
 ### Transport
 
-State is reset on transport stop. Resuming from an arbitrary position
-recomputes the register evolution deterministically from
-`(seed, length, lock, position)` so the output is identical regardless
-of where playback begins. Seeded determinism is a core contract.
+The shift register and rng are re-derived from `(seed, length)` on
+every transport start (not stop) — m4l's `transportStart()` and
+vst's `processBlock` start-edge handler both call into the same
+`createRegister` path. Each press of play therefore replays the
+same loop from the same seed: stop / start cycles do not drift the
+output away from the seed-defined evolution. Seeded determinism is
+a core contract.
+
+Mid-loop scrubbing (host moves PPQ to a non-zero position without
+stopping) is *not* re-derived from `(seed, length, lock, position)`
+in v1; the engine continues stepping monotonically from its current
+register state. This is a known simplification — the targets agree
+on it, and a position-aware re-derivation is left as a future
+extension if scrub fidelity becomes a user-facing concern.
 
 ## What Stencil is not
 

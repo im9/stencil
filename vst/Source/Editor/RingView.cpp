@@ -177,12 +177,11 @@ void RingView::mouseDown(const juce::MouseEvent& e)
                                        Point2{ geo.cx, geo.cy });
     if (idx < 0) return;
 
-    // ADR 007 §FREEZE / ROLL semantics: bit-click → ROLL. Use a
-    // millisecond-counter-seeded rng so successive clicks get different
-    // seeds without a persistent member rng. Quality is irrelevant here:
-    // the user just wants "a different loop."
-    auto rng = engine::seedRng(static_cast<uint64_t>(juce::Time::getMillisecondCounter()));
-    const int newSeed = RingLogic::rollAction(rng);
+    // ADR 007 §FREEZE / ROLL semantics: bit-click → ROLL. Use the JUCE
+    // global Random whose state advances on every call; two clicks in
+    // the same millisecond therefore still produce different seeds.
+    // Quality is irrelevant: the user just wants "a different loop".
+    const int newSeed = juce::Random::getSystemRandom().nextInt(0x7FFFFFFF);
     if (auto* p = processor_.getApvts().getParameter(plugin::pid::seed)) {
         p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(newSeed)));
     }

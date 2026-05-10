@@ -72,8 +72,10 @@ void ActionsView::onFreeze()
 
 void ActionsView::onRoll()
 {
-    auto rng = engine::seedRng(static_cast<uint64_t>(juce::Time::getMillisecondCounter()));
-    const int newSeed = RingLogic::rollAction(rng);
+    // Use the JUCE global Random (state advances per call) so successive
+    // ROLL presses always produce a different seed even when fired in
+    // the same millisecond.
+    const int newSeed = juce::Random::getSystemRandom().nextInt(0x7FFFFFFF);
     if (auto* p = processor_.getApvts().getParameter(plugin::pid::seed)) {
         p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(newSeed)));
     }

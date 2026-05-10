@@ -22,6 +22,23 @@ remaining §Note-off discipline paths (parameter change, state
 load, bypass enable) and §Audit follow-ups checklist added so
 the residual items from the 2026-05-10 audit can be addressed
 incrementally without re-opening §Implementation checklist.
+**Revised**: 2026-05-10 — §Audit follow-ups extended with two
+new sub-sections (Real-time safety, Edge cases / behavior) from
+the 2026-05-10 RT-safety + latent-bug pass: audio-thread vector
+allocation churn, editor-snapshot tuple coherence, input-MIDI
+block quantization, `outputGate=0` zero-length notes, seed-mode
+register wipe on transport start, ROLL same-ms double-click,
+plus a `RightRailView::pollTimer_` dead-field cleanup.
+**Revised**: 2026-05-10 — judgment-free §Audit follow-ups items
+landed (7 of 16): rangeLo / rangeHi clamp direction documented in
+§Parameter surface; `mapToNote` +1 framing documented in §Engine
+port; `concept.md` §Transport reworded to "reset on transport
+start"; §MIDI processing "pure-density" replaced with the
+inboil-vs-Stencil mix description; §Persistence "13 parameters"
+annotated as vst-APVTS count; §MIDI processing intro reworded
+around `audio.clear()`; ROLL seeding switched to `juce::Random`
+across `RingView` / `ActionsView` / `RightRailView`; dead
+`pollTimer_` field removed from `RightRailView.h`.
 
 This ADR specifies the `vst/` target's architecture: the plugin formats
 shipped, the C++17 source layout (`Engine` / `Plugin` / `Editor`), the
@@ -280,6 +297,16 @@ test-vector parity per [ADR 001 §Step composition][adr1-step]).
 
 [adr1-step]: archive/001-engine-interface.md
 
+`mapToNote` computes `floor(lo + (num × (hi - lo + 1)) / den)`
+clamped to `hi` — the `+1` divides the `[lo, hi]` range into
+`hi - lo + 1` equal-width buckets so every integer note in the
+range receives the same fraction-of-`registerToFraction` mass.
+This intentionally diverges from inboil's `round(lo + frac × (hi - lo))`,
+which gives the endpoints half-buckets and so under-represents
+`lo` and `hi` over a long sweep. Stencil's mapping was chosen
+when porting the algorithm; turing-test-vectors.json bakes the
+`+1` formula into the cross-target conformance contract.
+
 ### Parameter surface (APVTS)
 
 `Source/Plugin/Parameters.cpp` defines the APVTS layout. Parameter
@@ -303,18 +330,29 @@ table that m4l's `live.*` set was derived from.
 | `outputGate`     | `AudioParameterFloat` | `0.0..1.0`                              | `0.5`    | linear|
 | `outputChannel`  | `AudioParameterInt`   | `1..16`                                 | `1`      | —     |
 
-The `length` clamp on `rangeLo ≤ rangeHi` is enforced in
-`PluginProcessor` via APVTS listener, not in the engine. Engine
-remains a pure function.
+The `rangeLo ≤ rangeHi` invariant is enforced in `PluginProcessor`
+via an APVTS listener, not in the engine — engine remains a pure
+function. The vst clamp pushes the *other* side to follow (move
+`rangeLo` past `rangeHi` and `rangeHi` rises to match), since
+APVTS UX expects the side the user did not just touch to give way.
+This intentionally diverges from m4l's `host.ts` clamp, which
+snaps the side the user just moved (move `rangeLo` past `rangeHi`
+and `rangeLo` is pulled back down): m4l's `live.numbox` widgets
+display the same slider value the user committed, while vst's
+APVTS sliders move continuously and need the other endpoint to
+track. Both shapes preserve `lo ≤ hi`; the difference is which
+endpoint the user observes "moving on its own" after a crossing.
 
 `AudioParameterChoice` is the right type for `subdivision` / `mode` /
 `triggerMode` (CLAP and AU both surface choice params correctly).
 
 ### MIDI processing
 
-`processBlock` is the only audio-thread callback (Stencil produces
-no audio — the audio buffer is empty by construction since
-`IS_MIDI_EFFECT TRUE`).
+`processBlock` is the only audio-thread callback. Stencil produces
+no audio; `IS_MIDI_EFFECT TRUE` instructs hosts not to route audio
+through it, but the audio buffer the host hands `processBlock` is
+not necessarily zero on entry, so `processBlock` calls
+`audio.clear()` defensively at the top before any MIDI work.
 
 Per-block:
 
@@ -350,9 +388,13 @@ Per-block:
    c. **Bit-tap active**:
       `active = ((reg & 1) == 1) || (densityDraw < probabilityThreshold(density))`.
       The LSB at the read head is the primary trigger (always fires
-      when set); density draws fill in on the empty bits. Pure-density
-      framing is incorrect — see §Open questions for why this matters
-      for the rhythmic feel.
+      when set); density draws fill in on the empty bits. This
+      diverges from inboil's mode-dispatched mix
+      (`note` mode uses `regValue > (1-density) * 0.5`, while
+      `gate` and `velocity` modes use `rng() < density`); Stencil
+      uses bit-tap for *all* modes so the LSB at the read head
+      remains audibly the primary rhythmic driver and `density`
+      remains a uniform "empty-bit fill" knob across modes.
    d. If `active`, schedule the `(note, velocity)` noteOn at the
       subdivision sample offset and the matching noteOff at
       `outputGate × stepDuration` later (clipped to the next step
@@ -548,7 +590,11 @@ truth for MIDI emission.
 APVTS is the single source of truth for persisted state.
 `getStateInformation` / `setStateInformation` serialize the APVTS
 `ValueTree` (XML inside the `MemoryBlock`) including all 13
-parameters above.
+parameters above. The "13" is the vst APVTS count: it splits
+[concept.md §Parameter surface][concept-params]'s 11 canonical
+items by exposing `range` as `rangeLo` / `rangeHi` separately
+(host automation needs distinct IDs) and adds the m4l-shared
+`outputChannel` for MIDI routing.
 
 Non-persisted state (intentional):
 
@@ -886,40 +932,104 @@ Tag legend: `(code, vst)` / `(code, m4l)` / `(doc)`.
       m4l) — vst now flushes on these (this ADR's hung-note discipline
       fix); m4l-side `host.ts:setParam`'s `flushKeys` array still
       omits both. Symmetrize.
-- [ ] **`rangeLo` / `rangeHi` clamp direction differs target-to-target**
+- [x] **`rangeLo` / `rangeHi` clamp direction differs target-to-target**
       (doc) — vst clamps the *other* side (APVTS UX expects
       not-just-moved side to follow); m4l clamps the side the user
       just moved. Both are intentional but undocumented. Note in
-      §Parameter surface.
-- [ ] **`mapToNote` span +1 framing differs from inboil** (doc) —
+      §Parameter surface. *(Documented in §Parameter surface.)*
+- [x] **`mapToNote` span +1 framing differs from inboil** (doc) —
       Stencil m4l/vst use `floor(lo + (num × (hi-lo+1)) / den)`
       clamped to hi for fair note-bucket distribution; inboil uses
       `round(lo + frac × (hi-lo))` with uneven endpoint buckets.
-      Note the deliberate divergence in §Engine port.
+      Note the deliberate divergence in §Engine port. *(Documented
+      in §Engine port.)*
 
 ### Doc consistency
 
-- [ ] **`concept.md` §Transport "reset on stop" wording** (doc) —
+- [x] **`concept.md` §Transport "reset on stop" wording** (doc) —
       actual behavior is reset on transport *start* (m4l's
       `transportStart()` and vst's start-edge handler). Reword the
       §Transport paragraph so the determinism contract describes
-      what the implementation actually does.
-- [ ] **§MIDI processing "pure-density framing is incorrect"** (doc)
+      what the implementation actually does. *(Reworded in
+      `concept.md` §Transport.)*
+- [x] **§MIDI processing "pure-density framing is incorrect"** (doc)
       — the line critiques inboil as pure-density, but inboil
       actually uses `regValue > (1-density) * 0.5` for `note`
       mode and density-only for `gate` / `velocity`. Reword to
       "Stencil's bit-tap diverges from inboil's mode-dispatched
       mix" and explicitly cite inboil's per-mode active rule.
-- [ ] **"all 13 parameters" wording** (doc) — `concept.md` lists
+      *(Reworded in §MIDI processing step 5c.)*
+- [x] **"all 13 parameters" wording** (doc) — `concept.md` lists
       11 canonical parameters (range as tuple); §Persistence here
       says 13 because vst APVTS keeps `rangeLo` / `rangeHi`
       separately and adds `outputChannel`. Annotate
       "13 (vst APVTS count)" so the two doc shapes reconcile.
-- [ ] **"audio buffer empty by construction"** (doc) — §MIDI
+      *(Annotated in §Persistence.)*
+- [x] **"audio buffer empty by construction"** (doc) — §MIDI
       processing line claims the buffer is empty courtesy of
       `IS_MIDI_EFFECT TRUE`; the implementation explicitly calls
       `audio.clear()` defensively because hosts can pass non-empty
-      buffers. Reword.
+      buffers. Reword. *(Reworded in §MIDI processing intro.)*
+
+### Real-time safety
+
+- [ ] **Audio-thread vector allocation churn** (code, vst, RT) —
+      `pendingNoteOffs_`, Sequencer's `heldInputs_`, and the
+      `std::vector<StepBoundary>` returned by `detectBoundaries`
+      all grow on the audio thread without pre-reservation.
+      Reserve in `prepareToPlay` (e.g. 64 / 16 / max-steps-per-block)
+      and refactor `detectBoundaries` to take a
+      `std::vector<StepBoundary>&` output parameter so the buffer
+      can be reused across blocks.
+- [ ] **Editor snapshot tuple coherence** (code, vst, RT) — four
+      independent `std::atomic` snapshots (`registerSnapshot_`,
+      `cumulativeStepsSnapshot_`, `lastNoteSnapshot_`,
+      `lastActiveSnapshot_`) all use `memory_order_relaxed`, so
+      the editor can read a torn tuple (e.g. register from step N
+      with lastNote from step N-1). At 15 Hz repaint the visual
+      drift is bounded but real. Pack into a single
+      `std::atomic<Snapshot>` (≤16 bytes — lock-free on x86_64 /
+      arm64) with `release` store / `acquire` load, or use a
+      seqlock pattern via a single `std::atomic<uint32_t>` version
+      counter.
+- [ ] **Input MIDI is block-quantized, not sample-accurate** (code,
+      vst, RT) — `processBlock` drains every MIDI input message
+      into Sequencer before subdivision-boundary detection, so
+      `gate` / `seed` `triggerMode` events land at block-start
+      instead of their actual `samplePosition`. Interleave input
+      events with boundaries by samplePosition so Sequencer's
+      held-input / seed-active state mutates at the correct moment
+      within the block. §MIDI processing already promises
+      sample-accurate *output* timing — extend the same contract
+      to input.
+
+### Edge cases / behavior
+
+- [ ] **`outputGate = 0.0` produces zero-length notes** (code,
+      vst + m4l, design) — at the APVTS lower bound,
+      `gateSamples = floor(0 × stepDur + 0.5) = 0` so noteOff
+      lands at the same `sampleOffset` as noteOn. Most synths
+      render this as a click or silence. Two options: enforce
+      `gateSamples >= 1` at the scheduling site, or raise the
+      APVTS lower bound (e.g. `0.01`). Decision needed —
+      "outputGate=0 = mute step" might be a valid creative use
+      case worth preserving.
+- [ ] **`triggerMode = seed` user-played register wipe on transport
+      start** (code, vst + m4l, design) — the Issue 2 start-edge
+      reset re-derives register from `seed` APVTS param,
+      discarding any pattern the user wrote via input notes.
+      Matches m4l, but surprises live performers. Either skip the
+      reset when `triggerMode == Seed && seedActivated_`, or add
+      register persistence to APVTS so the input-driven pattern
+      survives transport bounces.
+- [x] **Same-millisecond double-click ROLL is a no-op** (code, vst)
+      — `RingView::mouseDown`, `ActionsView::onRoll`, and the
+      right-rail `rollBtn_` all seeded a fresh rng from
+      `juce::Time::getMillisecondCounter()`; two clicks within 1 ms
+      produced identical seeds. Switched all three call sites to
+      `juce::Random::getSystemRandom().nextInt(0x7FFFFFFF)` whose
+      state advances per call, so successive presses always
+      produce different seeds.
 
 ### Cleanup
 
@@ -928,6 +1038,10 @@ Tag legend: `(code, vst)` / `(code, m4l)` / `(doc)`.
       `pendingNoteOffs_` instead. Decide: surface `NotesOn` as the
       canonical hung-note tracker (and route `pendingNoteOffs_`
       through it) or remove the class.
+- [x] **`RightRailView::pollTimer_` is dead code** (code, vst) —
+      declared as `juce::Timer* pollTimer_ = nullptr` but never
+      assigned; the actual pill-sync timer lives in `pillSync_`
+      (a `std::unique_ptr<PillSync>`). Field removed.
 
 ## Per-target notes
 
