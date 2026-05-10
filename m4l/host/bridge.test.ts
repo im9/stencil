@@ -406,6 +406,54 @@ test("transportStop — resets timing estimate so restart starts fresh", () => {
   }
 });
 
+test("setParam subdivision — resets msPerStep so the new rate doesn't inherit the old EMA", () => {
+  // Subdivision change moves the qmetro to a new rate (e.g. 16n → 32n
+  // halves the inter-step dt). The bridge's msPerStep EMA would lag the
+  // new rate by ~3 steps; during that window the noteOff schedule
+  // (delaySteps × msPerStep) uses the old, longer estimate and lands
+  // after the next step's noteOn — producing audible click / hung note.
+  // Resetting msPerStep on subdivision change forces the next step pair
+  // to rebuild the estimate from scratch against the new dt.
+  const { bridge, rec } = makeBridge({
+    seed: 1,
+    density: 1.0,
+    lock: 1.0,
+    outputGate: 1.0, // schedule ms == msPerStep, easy to assert
+  });
+  // Establish msPerStep ≈ 125ms (16th @ 120 BPM)
+  rec.nowValue = 0;
+  bridge.step(0);
+  rec.nowValue = 125;
+  bridge.step(1);
+  rec.nowValue = 250;
+  rec.scheduled.length = 0;
+  bridge.step(2);
+  // Sanity: pre-change estimate is 125
+  assert.equal(rec.scheduled.filter((s) => s.ms > 0)[0].ms, 125);
+  // Switch subdivision → metro will start firing twice as fast in Live;
+  // bridge must drop its old estimate so the next step pair rebuilds.
+  bridge.setParam("subdivision", "32nd");
+  // Next step at +62.5ms (32nd @ 120 BPM); without reset it would
+  // schedule with stale 125ms estimate.
+  rec.nowValue = 312.5;
+  rec.scheduled.length = 0;
+  bridge.step(3);
+  // First post-reset step has no estimate → noteOff fires immediately
+  // (same contract as the cold-start branch in step path).
+  assert.equal(
+    rec.scheduled.filter((s) => s.ms > 0).length,
+    0,
+    "first step post-reset must not schedule against stale msPerStep",
+  );
+  // Following step rebuilds estimate from new dt (62.5ms)
+  rec.nowValue = 375;
+  rec.scheduled.length = 0;
+  bridge.step(4);
+  const sched = rec.scheduled.filter((s) => s.ms > 0);
+  assert.equal(sched.length, 1);
+  assert.equal(sched[0].ms, 62.5, "estimate must reflect new subdivision");
+});
+
 test("panic — flushes via host, emits no spurious register/position", () => {
   // Panic flushes notesOn but doesn't change register / position state, so
   // no UI outlet emit is needed.

@@ -375,6 +375,41 @@ for (const [longname, shortname, bridgeKey, enumValues, initialIdx] of LIVE_ENUM
   })
 }
 
+// ---- subdivision → qmetro reconfig ------------------------------------
+
+// Each subdivision enum value maps to a Max time-value symbol (qmetro
+// arg). Without this routing the menu is a dead control: it updates
+// host state but the qmetro keeps its hardcoded 16n rate. Both
+// `interval` and `quantize` are reconfigured together so the metro
+// fires on the matching grid (quantize=16n while interval=32n would
+// align fast triggers to slow grid boundaries). Map per Max docs:
+// https://docs.cycling74.com/max8/vignettes/maxtime_syntax
+const SUBDIVISION_TO_METRO = {
+  '8th': '8n',
+  '16th': '16n',
+  '32nd': '32n',
+  '8T': '8nt',
+  '16T': '16nt',
+}
+
+test('subdivision menu reconfigures qmetro interval + quantize per enum value', () => {
+  const { boxes, lines } = loadPatcher(MAXPAT)
+  const messages = boxesByMaxclass(boxes, 'message')
+  const metro = boxesByMaxclass(boxes, 'newobj').find((b) =>
+    /^q?metro\b/.test(b.box.text),
+  )
+  assert.ok(metro, 'metro / qmetro box missing')
+  for (const [enumValue, metroSym] of Object.entries(SUBDIVISION_TO_METRO)) {
+    const expected = `interval ${metroSym}, quantize ${metroSym}`
+    const msg = messages.find((b) => b.box.text === expected)
+    assert.ok(msg, `missing message: "${expected}" (for subdivision ${enumValue})`)
+    assert.ok(
+      followsLineFromTo(lines, msg.box.id, metro.box.id),
+      `${msg.box.id} ("${expected}") -> ${metro.box.id} (qmetro) wire missing`,
+    )
+  }
+})
+
 test('all 12 live.* parameters are present (no extras, no missing)', () => {
   // Cross-check the per-widget tests with a count assertion. Catches a
   // silent duplicate longname or an extra unrelated live.* widget that

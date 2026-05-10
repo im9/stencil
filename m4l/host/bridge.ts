@@ -193,6 +193,12 @@ export class TmBridge {
         const v = String(value);
         if (!SUBDIVISIONS.includes(v as Subdivision)) return;
         events = this.host.setParam("subdivision", v as Subdivision);
+        // The qmetro is reconfigured (interval + quantize) by the patcher
+        // in parallel — see Stencil.maxpat subdivision-menu wiring. Drop
+        // the running msPerStep estimate so the next step pair rebuilds
+        // it against the new dt; otherwise the old EMA lingers ~3 steps
+        // and noteOff scheduling lands past the new step boundary.
+        this.resetMsPerStep();
         break;
       }
       case "triggerMode": {
@@ -277,6 +283,16 @@ export class TmBridge {
     // post-restart noteOff still schedules sensibly.
     this.lastStepTime = null;
     this.lastStepPos = null;
+  }
+
+  private resetMsPerStep(): void {
+    // Stronger reset than resetTimingAlignment: also drops msPerStep so the
+    // next step pair rebuilds the estimate from scratch (cold-start branch
+    // in recordStepTiming). Used when the underlying step rate changes
+    // discontinuously — e.g. subdivision menu toggled.
+    this.lastStepTime = null;
+    this.lastStepPos = null;
+    this.msPerStep = 0;
   }
 
   private emitRegister(): void {
