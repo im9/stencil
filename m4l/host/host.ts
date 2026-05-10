@@ -9,6 +9,7 @@ import {
   createRegister,
   mapToNote,
   nextU32,
+  probabilityThreshold,
   registerToFraction,
   seedRng,
   shiftAndFlip,
@@ -58,13 +59,6 @@ export const DEFAULT_PARAMS: HostParams = {
   mode: "note",
 };
 
-// Threshold for u32-space probability comparison (mirrors engine convention).
-function probabilityThreshold(p: number): number {
-  if (p <= 0) return 0;
-  if (p >= 1) return 0x100000000;
-  return Math.floor(p * 0x100000000);
-}
-
 function noteKey(pitch: number, channel: number): string {
   return `${pitch}:${channel}`;
 }
@@ -78,13 +72,11 @@ export class TmHost {
   private register: number;
   private rng: RngState;
   private position: number;
-  private notesOn: Set<string>;
   private heldInputs: Set<string>; // gate mode
   private seedActivated: boolean; // seed mode: false until first input
 
   constructor(params: HostParams = DEFAULT_PARAMS) {
     this.params = { ...params };
-    this.notesOn = new Set();
     this.heldInputs = new Set();
     this.seedActivated = false;
     const init = this.freshRegister();
@@ -101,14 +93,6 @@ export class TmHost {
 
   private channelMatches(ch: number): boolean {
     return this.params.inputChannel === 0 || ch === this.params.inputChannel;
-  }
-
-  private flushNotesOn(events: NoteEvent[]): void {
-    for (const key of this.notesOn) {
-      const [p, c] = key.split(":").map(Number);
-      events.push({ type: "noteOff", pitch: p, channel: c, delaySteps: 0 });
-    }
-    this.notesOn.clear();
   }
 
   // Transport: advance to host step index `_position`. The position param is
@@ -191,7 +175,6 @@ export class TmHost {
     this.position++;
 
     if (active) {
-      this.flushNotesOn(events);
       const ch = this.params.outputChannel;
       events.push({
         type: "noteOn",
@@ -206,9 +189,6 @@ export class TmHost {
         channel: ch,
         delaySteps: this.params.outputGate,
       });
-      // notesOn intentionally NOT updated: the noteOff is already in the
-      // emitted events for the bridge to schedule. notesOn tracks only
-      // unmatched-noteOn cases (currently none in TM mono).
     }
 
     return events;
@@ -240,52 +220,35 @@ export class TmHost {
     return [];
   }
 
+  // concept.md §Transport: every transport start re-derives the register
+  // from (seed, length) — seeded determinism is a core contract. Stop alone
+  // preserves register state for inspection, but stop+start re-rolls.
   transportStart(): NoteEvent[] {
-    const events: NoteEvent[] = [];
-    this.flushNotesOn(events);
     const init = this.freshRegister();
     this.register = init.register;
     this.rng = init.rng;
     this.position = 0;
     this.heldInputs.clear();
     this.seedActivated = false;
-    return events;
+    return [];
   }
 
-  // ADR 002 §Note-off discipline: emit noteOff for all notesOn, clear set,
-  // reset position. Register is preserved (NOT re-initialized) so stop/start
-  // resumes from the same loop rather than re-drawing on every transport
-  // bounce.
   transportStop(): NoteEvent[] {
-    const events: NoteEvent[] = [];
-    this.flushNotesOn(events);
     this.heldInputs.clear();
     this.seedActivated = false;
     this.position = 0;
-    return events;
+    return [];
   }
 
   panic(): NoteEvent[] {
-    const events: NoteEvent[] = [];
-    this.flushNotesOn(events);
-    return events;
+    return [];
   }
 
-  // Generic parameter update. State-affecting params (length, seed, range,
-  // subdivision, triggerMode) flush notes and may re-init the register.
+  // Generic parameter update. length / seed re-init the register;
+  // triggerMode clears mode-specific input state. Per-step noteOff
+  // scheduling lives at the bridge (delaySteps × msPerStep), so the host
+  // does not track sounding notes here.
   setParam<K extends ParamKey>(key: K, value: HostParams[K]): NoteEvent[] {
-    const events: NoteEvent[] = [];
-    const flushKeys: ParamKey[] = [
-      "length",
-      "seed",
-      "rangeLo",
-      "rangeHi",
-      "subdivision",
-      "triggerMode",
-    ];
-    if (flushKeys.includes(key)) {
-      this.flushNotesOn(events);
-    }
     this.params[key] = value;
     // Re-init register on length/seed change. Position is preserved
     // (monotonic since transportStart per ADR 002).
@@ -307,7 +270,7 @@ export class TmHost {
     if (key === "rangeHi" && this.params.rangeHi < this.params.rangeLo) {
       this.params.rangeHi = this.params.rangeLo;
     }
-    return events;
+    return [];
   }
 
   // ADR 002 §register direct write: random-access write to register[index].
@@ -330,11 +293,9 @@ export class TmHost {
 
   // Tuple range update. Always orders lo ≤ hi.
   setRange(lo: number, hi: number): NoteEvent[] {
-    const events: NoteEvent[] = [];
-    this.flushNotesOn(events);
     this.params.rangeLo = Math.min(lo, hi);
     this.params.rangeHi = Math.max(lo, hi);
-    return events;
+    return [];
   }
 
   // Inspection (for UI side-channels and tests).

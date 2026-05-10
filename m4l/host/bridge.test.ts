@@ -455,8 +455,9 @@ test("setParam subdivision — resets msPerStep so the new rate doesn't inherit 
 });
 
 test("panic — flushes via host, emits no spurious register/position", () => {
-  // Panic flushes notesOn but doesn't change register / position state, so
-  // no UI outlet emit is needed.
+  // Panic is a no-op at the host level (no per-event flush — bridge owns
+  // delaySteps-based noteOff scheduling). Verifies it doesn't disturb UI
+  // side-channels by accident.
   const { bridge, rec } = makeBridge();
   rec.outlets.length = 0;
   bridge.panic();

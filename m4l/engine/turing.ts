@@ -16,7 +16,7 @@ function maskBits(length: Length): number {
 
 // Probability threshold for u32-space comparison.
 // rawU32 < threshold ⇔ (rawU32 / 2^32) < probability
-function probabilityThreshold(p: number): number {
+export function probabilityThreshold(p: number): number {
   if (p <= 0) return 0;
   if (p >= 1) return 0x100000000;
   return Math.floor(p * 0x100000000);
