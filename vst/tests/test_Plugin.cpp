@@ -424,6 +424,144 @@ TEST_CASE("processBlock seed-mode input shifts register via shiftAndForce",
     CHECK(proc.getSequencerForTest().isSeedActivated());
 }
 
+// ─── Hung-note flush (ADR 007 §Note-off discipline) ──────────────────────
+//
+// Helper: drive proc through one block at 120 BPM with outputGate=1.0 so a
+// noteOn lands at offset 0 and its noteOff is scheduled for 6000 samples
+// later — past the 4096-sample block, so it lives in pendingNoteOffs_.
+
+namespace
+{
+struct LongGateFixture
+{
+    LongGateFixture(StencilProcessor& proc)
+    {
+        auto& apvts = proc.getApvts();
+        apvts.getParameter(pid::lock)->setValueNotifyingHost(1.0f);
+        apvts.getParameter(pid::density)->setValueNotifyingHost(1.0f);
+        apvts.getParameter(pid::outputGate)->setValueNotifyingHost(1.0f);
+        proc.prepareToPlay(48000.0, 4096);
+
+        ph.position.setBpm(juce::makeOptional(120.0));
+        ph.position.setPpqPosition(juce::makeOptional(0.0));
+        ph.position.setIsPlaying(true);
+        proc.setPlayHead(&ph);
+
+        // Block 1: noteOn at offset 0; noteOff scheduled across blocks.
+        juce::AudioBuffer<float> audio(0, 4096);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+
+        int noteOnCount = 0, noteOffCount = 0;
+        for (const auto meta : midi)
+        {
+            if (meta.getMessage().isNoteOn()) ++noteOnCount;
+            else if (meta.getMessage().isNoteOff()) ++noteOffCount;
+        }
+        REQUIRE(noteOnCount == 1);
+        REQUIRE(noteOffCount == 0);  // pending — must flush on next event
+    }
+
+    MockPlayHead ph;
+};
+
+// Run a single block of the given size and return (noteOff-count, has-CC123).
+struct DrainResult
+{
+    int noteOffCount = 0;
+    int allNotesOffCount = 0;
+};
+
+DrainResult drainOneBlock(StencilProcessor& proc, int blockSamples)
+{
+    juce::AudioBuffer<float> audio(0, blockSamples);
+    juce::MidiBuffer midi;
+    proc.processBlock(audio, midi);
+
+    DrainResult r;
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOff() && meta.samplePosition == 0) ++r.noteOffCount;
+        else if (m.isControllerOfType(123)) ++r.allNotesOffCount;
+    }
+    return r;
+}
+}  // namespace
+
+TEST_CASE("setStateInformation flushes pending noteOffs at next block",
+          "[plugin][hung_note][state_load]")
+{
+    // concept.md §Note-off discipline: state load must clear sounding notes.
+    StencilProcessor proc;
+    LongGateFixture fx(proc);
+
+    // Capture state of a fresh processor and load it — replaceState fires
+    // listeners, which must request a hung-note flush.
+    StencilProcessor donor;
+    juce::MemoryBlock block;
+    donor.getStateInformation(block);
+    proc.setStateInformation(block.getData(), static_cast<int>(block.getSize()));
+
+    // Next block: the pending noteOff from block 1 must drain at offset 0.
+    fx.ph.position.setPpqPosition(juce::makeOptional(4096.0 / 24000.0));
+    const auto r = drainOneBlock(proc, 4096);
+    CHECK(r.noteOffCount >= 1);  // drained pending at offset 0
+}
+
+TEST_CASE("length parameter change flushes pending noteOffs at next block",
+          "[plugin][hung_note][param_change]")
+{
+    // ADR 007 §Note-off discipline lists length as a flush trigger.
+    StencilProcessor proc;
+    LongGateFixture fx(proc);
+
+    proc.getApvts().getParameter(pid::length)->setValueNotifyingHost(
+        proc.getApvts().getParameter(pid::length)->convertTo0to1(16.0f));
+
+    fx.ph.position.setPpqPosition(juce::makeOptional(4096.0 / 24000.0));
+    const auto r = drainOneBlock(proc, 4096);
+    CHECK(r.noteOffCount >= 1);
+}
+
+TEST_CASE("mode parameter change flushes pending noteOffs at next block",
+          "[plugin][hung_note][param_change]")
+{
+    // ADR 007 §Note-off discipline lists mode as a flush trigger.
+    StencilProcessor proc;
+    LongGateFixture fx(proc);
+
+    proc.getApvts().getParameter(pid::mode)->setValueNotifyingHost(
+        proc.getApvts().getParameter(pid::mode)->convertTo0to1(1.0f));  // gate
+
+    fx.ph.position.setPpqPosition(juce::makeOptional(4096.0 / 24000.0));
+    const auto r = drainOneBlock(proc, 4096);
+    CHECK(r.noteOffCount >= 1);
+}
+
+TEST_CASE("processBlockBypassed on entry flushes pending noteOffs + emits panic",
+          "[plugin][hung_note][bypass]")
+{
+    // ADR 007 §Note-off discipline: bypass enable must clear sounding notes.
+    StencilProcessor proc;
+    LongGateFixture fx(proc);
+
+    juce::AudioBuffer<float> audio(0, 4096);
+    juce::MidiBuffer midi;
+    proc.processBlockBypassed(audio, midi);
+
+    int noteOffAt0 = 0;
+    int allNotesOffCount = 0;
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOff() && meta.samplePosition == 0) ++noteOffAt0;
+        else if (m.isControllerOfType(123)) ++allNotesOffCount;
+    }
+    CHECK(noteOffAt0 >= 1);
+    CHECK(allNotesOffCount == 16);  // CC 123 on every channel — full panic
+}
+
 TEST_CASE("processBlock !playing→playing edge resets register to seed-derived state",
           "[plugin][processBlock][transport_reset]")
 {

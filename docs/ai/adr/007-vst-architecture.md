@@ -17,6 +17,11 @@ inboil-style click-to-ROLL because the dialog-class editor exposes
 the explicit buttons). Also dropped the inaccurate
 "`tmStep` re-derives register from `(seed, position)`" claim that
 had been used to justify the persistence requirement.
+**Revised**: 2026-05-10 — Hung-note flush expanded to cover the
+remaining §Note-off discipline paths (parameter change, state
+load, bypass enable) and §Audit follow-ups checklist added so
+the residual items from the 2026-05-10 audit can be addressed
+incrementally without re-opening §Implementation checklist.
 
 This ADR specifies the `vst/` target's architecture: the plugin formats
 shipped, the C++17 source layout (`Engine` / `Plugin` / `Editor`), the
@@ -857,6 +862,72 @@ Best-effort (load + smoke; not blocking for v1):
 Status flips to *Implemented* once every box above is ticked.
 Cross-platform Windows / Linux builds and code-signing /
 notarization land in a follow-up ADR per §Out of scope.
+
+## Audit follow-ups (2026-05-10)
+
+The 2026-05-10 cross-axis audit (m4l vs vst, code vs docs, both vs
+inboil) surfaced items beyond §Verification's manual host-load
+checks. Resolved items are in commit history (transport-start
+register reset, FREEZE / ROLL framing, hung-note flush across
+parameter changes / state load / bypass). The remaining items
+below are tracked here so they can be addressed incrementally
+without re-opening the §Implementation checklist.
+
+Tag legend: `(code, vst)` / `(code, m4l)` / `(doc)`.
+
+### Cross-target consistency
+
+- [ ] **mutated-bit salmon highlight in `vst` `RingView`** (code, vst)
+      — inboil `TuringSheet.svelte` paints the bit just flipped by
+      `shiftAndFlip` in `--color-salmon`; vst's `RingView::paint`
+      ignores the salmon palette token. Add a per-step "mutated bit
+      index" snapshot from the audio thread and read it in `paint`.
+- [ ] **`m4l` `setParam` flush misses `mode` + `outputChannel`** (code,
+      m4l) — vst now flushes on these (this ADR's hung-note discipline
+      fix); m4l-side `host.ts:setParam`'s `flushKeys` array still
+      omits both. Symmetrize.
+- [ ] **`rangeLo` / `rangeHi` clamp direction differs target-to-target**
+      (doc) — vst clamps the *other* side (APVTS UX expects
+      not-just-moved side to follow); m4l clamps the side the user
+      just moved. Both are intentional but undocumented. Note in
+      §Parameter surface.
+- [ ] **`mapToNote` span +1 framing differs from inboil** (doc) —
+      Stencil m4l/vst use `floor(lo + (num × (hi-lo+1)) / den)`
+      clamped to hi for fair note-bucket distribution; inboil uses
+      `round(lo + frac × (hi-lo))` with uneven endpoint buckets.
+      Note the deliberate divergence in §Engine port.
+
+### Doc consistency
+
+- [ ] **`concept.md` §Transport "reset on stop" wording** (doc) —
+      actual behavior is reset on transport *start* (m4l's
+      `transportStart()` and vst's start-edge handler). Reword the
+      §Transport paragraph so the determinism contract describes
+      what the implementation actually does.
+- [ ] **§MIDI processing "pure-density framing is incorrect"** (doc)
+      — the line critiques inboil as pure-density, but inboil
+      actually uses `regValue > (1-density) * 0.5` for `note`
+      mode and density-only for `gate` / `velocity`. Reword to
+      "Stencil's bit-tap diverges from inboil's mode-dispatched
+      mix" and explicitly cite inboil's per-mode active rule.
+- [ ] **"all 13 parameters" wording** (doc) — `concept.md` lists
+      11 canonical parameters (range as tuple); §Persistence here
+      says 13 because vst APVTS keeps `rangeLo` / `rangeHi`
+      separately and adds `outputChannel`. Annotate
+      "13 (vst APVTS count)" so the two doc shapes reconcile.
+- [ ] **"audio buffer empty by construction"** (doc) — §MIDI
+      processing line claims the buffer is empty courtesy of
+      `IS_MIDI_EFFECT TRUE`; the implementation explicitly calls
+      `audio.clear()` defensively because hosts can pass non-empty
+      buffers. Reword.
+
+### Cleanup
+
+- [ ] **`engine::NotesOn` is dead code** (code, vst) — declared in
+      `Engine/Sequencer.h` but `PluginProcessor` uses
+      `pendingNoteOffs_` instead. Decide: surface `NotesOn` as the
+      canonical hung-note tracker (and route `pendingNoteOffs_`
+      through it) or remove the class.
 
 ## Per-target notes
 

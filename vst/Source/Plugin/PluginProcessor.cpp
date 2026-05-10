@@ -8,12 +8,23 @@
 
 namespace stencil::plugin
 {
+namespace
+{
+// Parameters that must trigger a hung-note flush on change, per ADR 007
+// §Note-off discipline. Range listeners also drive the lo ≤ hi clamp;
+// the others are listed solely for the flush.
+const char* const kFlushOnChangeParamIds[] = {
+    pid::rangeLo, pid::rangeHi, pid::length, pid::seed,
+    pid::subdivision, pid::mode, pid::outputChannel
+};
+}  // namespace
+
 StencilProcessor::StencilProcessor()
     : AudioProcessor(BusesProperties()),
       apvts(*this, nullptr, "STENCIL", makeParameterLayout())
 {
-    apvts.addParameterListener(pid::rangeLo, this);
-    apvts.addParameterListener(pid::rangeHi, this);
+    for (const char* id : kFlushOnChangeParamIds)
+        apvts.addParameterListener(id, this);
 
     // Sync sequencer with initial APVTS values (covers the case where the
     // host load happened with non-default values via setStateInformation
@@ -32,8 +43,8 @@ StencilProcessor::StencilProcessor()
 
 StencilProcessor::~StencilProcessor()
 {
-    apvts.removeParameterListener(pid::rangeLo, this);
-    apvts.removeParameterListener(pid::rangeHi, this);
+    for (const char* id : kFlushOnChangeParamIds)
+        apvts.removeParameterListener(id, this);
 }
 
 void StencilProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
@@ -64,7 +75,14 @@ void StencilProcessor::setStateInformation(const void* data, int sizeInBytes)
     if (auto xml = getXmlFromBinary(data, sizeInBytes))
     {
         if (xml->hasTagName(apvts.state.getType()))
+        {
             apvts.replaceState(juce::ValueTree::fromXml(*xml));
+            // ADR 007 §Note-off discipline: state load must clear sounding
+            // notes. replaceState fires per-parameter listeners which
+            // already raise the flush flag, but request explicitly so
+            // identical-state restores (no listener fires) still flush.
+            flushPendingRequested_.store(true, std::memory_order_release);
+        }
     }
 }
 
@@ -95,6 +113,12 @@ void StencilProcessor::parameterChanged(const juce::String& parameterID, float n
                 loParam->setValueNotifyingHost(loParam->convertTo0to1(static_cast<float>(hi)));
         }
     }
+
+    // Hung-note flush per ADR 007 §Note-off discipline. Every parameter
+    // wired into kFlushOnChangeParamIds reaches this method, so an
+    // unconditional flag raise is correct. Drain-only (no CC 123);
+    // matches m4l's host.ts setParam flushNotesOn shape.
+    flushPendingRequested_.store(true, std::memory_order_release);
 }
 
 int StencilProcessor::stepDurationSamples(double bpm, engine::Subdivision subdivision) const
@@ -125,15 +149,25 @@ void StencilProcessor::drainPendingNoteOffs(juce::MidiBuffer& midi, int blockSam
     }
 }
 
-void StencilProcessor::emitPanic(juce::MidiBuffer& midi, int sampleOffset)
+void StencilProcessor::flushPending(juce::MidiBuffer& midi, int sampleOffset)
 {
-    // Drain any pending noteOffs first so a hung note from a long gate
-    // gets its noteOff before the all-notes-off CC.
+    // Surgical drain: noteOff for every scheduled-but-not-yet-fired note,
+    // then clear the list. Used by parameter-change / state-load /
+    // bypass-not-yet flushes where CC 123 would be heavy-handed (m4l's
+    // setParam flushNotesOn doesn't send CC 123 either).
     for (const auto& p : pendingNoteOffs_)
         midi.addEvent(juce::MidiMessage::noteOff(p.channel, p.note), sampleOffset);
     pendingNoteOffs_.clear();
+}
 
-    // CC 123 (All Notes Off) on every channel.
+void StencilProcessor::emitPanic(juce::MidiBuffer& midi, int sampleOffset)
+{
+    // Drain pending first so a hung note from a long gate gets its
+    // noteOff before the all-notes-off CC sweeps the channel.
+    flushPending(midi, sampleOffset);
+
+    // CC 123 (All Notes Off) on every channel — concept.md §Note-off
+    // discipline: panic is required behavior, not optional.
     for (int ch = 1; ch <= 16; ++ch)
         midi.addEvent(juce::MidiMessage::allNotesOff(ch), sampleOffset);
 }
@@ -188,6 +222,18 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
     }
 
     juce::MidiBuffer outMidi;
+
+    // Bypass edge: bypass → active. processBlockBypassed already drained
+    // pending and emitted panic on the way in; just clear the flag here
+    // so the next bypass entry triggers another panic.
+    if (wasBypassed_)
+        wasBypassed_ = false;
+
+    // Hung-note flush requested from the message thread (parameter change
+    // listener, setStateInformation). Consumed at offset 0. Drain-only —
+    // CC 123 is reserved for transport / bypass panic paths.
+    if (flushPendingRequested_.exchange(false, std::memory_order_acq_rel))
+        flushPending(outMidi, 0);
 
     // Transport edge: playing → stopped. Emit panic at offset 0.
     if (wasPlaying_ && !isPlaying)
@@ -273,6 +319,26 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
 
     midi.swapWith(outMidi);
     wasPlaying_ = isPlaying;
+}
+
+void StencilProcessor::processBlockBypassed(juce::AudioBuffer<float>& audio,
+                                             juce::MidiBuffer& midi)
+{
+    juce::ScopedNoDenormals noDenormals;
+    audio.clear();
+
+    juce::MidiBuffer outMidi;
+    if (!wasBypassed_)
+    {
+        // Active → bypass edge: emit panic so any sounding note from the
+        // pre-bypass state stops cleanly. ADR 007 §Note-off discipline.
+        // Subsequent bypassed blocks emit nothing — Stencil is silent
+        // while bypassed (no input passthrough; we are a generator, not
+        // a passthrough effect).
+        emitPanic(outMidi, 0);
+        wasBypassed_ = true;
+    }
+    midi.swapWith(outMidi);
 }
 
 }  // namespace stencil::plugin

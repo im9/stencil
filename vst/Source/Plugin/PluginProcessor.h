@@ -33,6 +33,7 @@ public:
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void processBlockBypassed(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -94,6 +95,19 @@ private:
     bool wasPlaying_ = false;
     double sampleRate_ = 44100.0;
 
+    // Bypass edge tracking. processBlockBypassed override emits panic on
+    // the active→bypass edge (ADR 007 §Note-off discipline). Both bypass
+    // entry / exit are observed on the audio thread, so a plain bool is
+    // sufficient — no atomic needed.
+    bool wasBypassed_ = false;
+
+    // Hung-note flush request from the message thread (parameter changes
+    // that affect note emission, setStateInformation). Audio thread
+    // consumes the flag at the start of the next processBlock and emits
+    // noteOff for every entry in pendingNoteOffs_ at offset 0. Drain-only
+    // (no CC 123) — matches m4l host.ts setParam's flushNotesOn shape.
+    std::atomic<bool> flushPendingRequested_{false};
+
     // Editor-thread snapshots, published after each step from processBlock.
     // Default register=0 is fine: the editor reads "current register bits"
     // and 0 just renders an all-empty ring until the first step lands.
@@ -109,6 +123,10 @@ private:
 
     // Helpers
     void drainPendingNoteOffs(juce::MidiBuffer& midi, int blockSamples);
+    // Drain pendingNoteOffs_ as noteOff events at sampleOffset and clear
+    // the list. No CC 123 — used by parameter-change / state-load flushes.
+    void flushPending(juce::MidiBuffer& midi, int sampleOffset);
+    // flushPending + CC 123 (All Notes Off) on every channel.
     void emitPanic(juce::MidiBuffer& midi, int sampleOffset);
     int stepDurationSamples(double bpm, engine::Subdivision subdivision) const;
 
