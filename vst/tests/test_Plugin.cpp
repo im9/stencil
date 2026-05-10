@@ -424,6 +424,100 @@ TEST_CASE("processBlock seed-mode input shifts register via shiftAndForce",
     CHECK(proc.getSequencerForTest().isSeedActivated());
 }
 
+TEST_CASE("processBlock !playing→playing edge resets register to seed-derived state",
+          "[plugin][processBlock][transport_reset]")
+{
+    // ADR 007 §Cross-target audible parity / concept.md §Transport.
+    // After running the engine, stopping, and restarting at the same
+    // (seed, length), the register must replay the same loop — m4l does
+    // this in transportStart()'s freshRegister() call; vst must too,
+    // otherwise cross-target parity breaks after the first stop/start.
+    StencilProcessor proc;
+    auto& apvts = proc.getApvts();
+    apvts.getParameter(pid::lock)->setValueNotifyingHost(0.5f);
+    apvts.getParameter(pid::density)->setValueNotifyingHost(1.0f);
+
+    const double sampleRate = 48000.0;
+    const int blockSamples = 24000;  // one quarter @ 120 BPM
+    proc.prepareToPlay(sampleRate, blockSamples);
+
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    ph.position.setIsPlaying(true);
+    proc.setPlayHead(&ph);
+
+    juce::AudioBuffer<float> audio(0, blockSamples);
+
+    // Run 1: starting from stopped construction state, play 4 16th-note steps.
+    {
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+    const auto regAfterFirstRun = proc.getSequencerForTest().getRegister();
+
+    // Stop.
+    ph.position.setIsPlaying(false);
+    {
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+
+    // Run 2: start again at ppq=0. Register must be re-derived from seed.
+    ph.position.setIsPlaying(true);
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    {
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+    const auto regAfterSecondRun = proc.getSequencerForTest().getRegister();
+
+    CHECK(regAfterSecondRun == regAfterFirstRun);
+}
+
+TEST_CASE("processBlock !playing→playing edge resets cumulative step counter",
+          "[plugin][processBlock][transport_reset]")
+{
+    // The editor's ring rotation reads getCumulativeSteps(); on transport
+    // restart it must zero so the head pointer realigns with bit 0
+    // (matches m4l, where bridge.ringHead emits host.position which
+    // resets on transportStart).
+    StencilProcessor proc;
+    proc.prepareToPlay(48000.0, 24000);
+
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    ph.position.setIsPlaying(true);
+    proc.setPlayHead(&ph);
+
+    juce::AudioBuffer<float> audio(0, 24000);
+
+    // Run 1: 4 steps.
+    {
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+    CHECK(proc.getCumulativeSteps() == 4);
+
+    // Stop.
+    ph.position.setIsPlaying(false);
+    {
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+
+    // Start again at ppq=0. Run 2's 4 steps land on a freshly-zeroed counter,
+    // so the editor sees 4 (not 8) — head pointer realigned.
+    ph.position.setIsPlaying(true);
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    {
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+    CHECK(proc.getCumulativeSteps() == 4);
+}
+
 TEST_CASE("processBlock seed/length param change re-creates register",
           "[plugin][processBlock][reset]")
 {

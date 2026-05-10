@@ -7,8 +7,16 @@
 mode dispatch (gate = range midpoint, velocity = `(0.3 + frac × 0.7) × outputVelocity`),
 "bit-tap active" semantic (`active = (reg & 1) || densityDraw`),
 seed-mode register-freeze semantics. Original draft described semantics
-not matching the m4l reference; corrected against `m4l/host/host.ts` per
-`feedback_porting_bug_amend_not_supersede`.
+not matching the m4l reference; corrected against `m4l/host/host.ts`.
+**Revised**: 2026-05-10 — §FREEZE / ROLL semantics clarified: the
+"vst inherits inboil's click→ROLL" framing was correct for vst but
+incorrectly implied m4l did the same. Section now records both as
+target-specific UX choices (m4l = direct bit edit via `setBit`
+because the compact strip has no FREEZE / ROLL buttons; vst =
+inboil-style click-to-ROLL because the dialog-class editor exposes
+the explicit buttons). Also dropped the inaccurate
+"`tmStep` re-derives register from `(seed, position)`" claim that
+had been used to justify the persistence requirement.
 
 This ADR specifies the `vst/` target's architecture: the plugin formats
 shipped, the C++17 source layout (`Engine` / `Plugin` / `Editor`), the
@@ -459,15 +467,27 @@ Inherited from inboil:
   the engine re-creates the register from the new seed via
   `createRegister`. Behaves as a reseed, not a register stomp.
 
-Direct bit-toggle (clicking a bit in the ring) requires the
-register to live in APVTS-persisted state, otherwise a click
-"flips a bit" that the next `tmStep` immediately overwrites by
-re-deriving from `(seed, position)`. v1 inherits inboil's choice:
-**clicking a bit triggers ROLL** (re-seed) rather than direct
-register edit. The musical effect — "I want a different loop" —
-is preserved; the implementation cost of persistent register state
-is deferred. (See §Open questions for the "register persistence"
-follow-up.)
+Direct bit-toggle (clicking a bit in the ring): vst v1 inherits
+inboil's choice — **clicking a bit triggers ROLL** (re-seed)
+rather than direct register edit. The musical effect — "I want a
+different loop" — is preserved; the implementation cost of
+APVTS-persisted register state (so a manual edit survives plugin
+save / reload) is deferred. (See §Open questions for the
+"register persistence" follow-up.)
+
+The m4l target takes a different path: it exposes
+`setBit(index, value)` so a click flips one bit of the running
+register directly. The flipped bit lives in the register and
+shifts naturally under subsequent `shiftAndFlip` steps; nothing
+re-derives the register from `(seed, position)` mid-loop. m4l's
+register isn't APVTS-persisted either, so the same
+"survives-reload" caveat applies, but the compact-strip UX (no
+FREEZE / ROLL buttons, single jsui surface) makes per-bit
+authoring the natural primary affordance there. vst keeps
+inboil's dialog-class layout including the explicit FREEZE / ROLL
+buttons, so click-to-ROLL is the natural primary affordance and
+direct bit-edit is the v2 question. Both choices are
+target-specific UX, not a contract drift in the engine.
 
 ### Build (CMake)
 

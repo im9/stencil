@@ -49,11 +49,21 @@ On each step of the host transport, Stencil:
 Intermediate values gradually mutate the loop: `lock = 0.95` is the classic
 "slowly evolving pattern" sweet spot.
 
-The musical intent is **a loop the user cannot fully author** — it emerges
-from initial randomness + lock and is steered, not written. This is why
-Stencil has no per-step program (cf. Oedipa's cells): the program *is* the
-register and the user shapes it by holding `lock` high during a section
-they like.
+The musical intent is **a steered loop, not an authored sequence** — it
+emerges from initial randomness + lock and is shaped by the user holding
+`lock` high during a section they like, not by drawing notes. This is
+why Stencil has no per-step program (cf. Oedipa's cells): the program
+*is* the register, and the canonical interactions are `lock`, `seed`,
+and `length`.
+
+Targets are free to expose a direct bit-toggle affordance (m4l's
+`setBit` lets the user flip individual bits in the running register;
+the bits then shift naturally under subsequent steps) when it fits
+that target's UI surface. Direct toggle is a *shortcut* for "I want
+this specific bit pattern right now" — equivalent to nudging seed
+until the same bits emerge, but quicker on a small device. The
+musical model is unchanged either way: the register is what plays;
+how the user nudges it is target-specific UX.
 
 ## Composition — Stencil → Pointsman chain
 

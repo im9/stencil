@@ -196,6 +196,21 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
         sequencer_.onTransportStop();
     }
 
+    // Transport edge: stopped → playing. Re-derive the register from
+    // (seed, length) so each transport start replays the same loop —
+    // matches m4l's transportStart() and concept.md §Transport's
+    // "Seeded determinism is a core contract." Without this, vst's
+    // register would persist across stop/start while m4l's resets,
+    // breaking ADR 007 §Cross-target audible parity after the first
+    // stop/start cycle. emitPanic on the prior stop edge already
+    // flushed any sounding notes.
+    if (!wasPlaying_ && isPlaying)
+    {
+        sequencer_.reset();
+        cumulativeStepsSnapshot_.store(0, std::memory_order_relaxed);
+        registerSnapshot_.store(sequencer_.getRegister(), std::memory_order_relaxed);
+    }
+
     // Drain any noteOffs scheduled to fire in this block.
     drainPendingNoteOffs(outMidi, blockSamples);
 
