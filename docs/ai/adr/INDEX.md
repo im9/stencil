@@ -47,11 +47,15 @@ distribution ADR per ADR 005 §Relationship to prior ADRs.
 
 ## VST
 
-VST is post-v1. The target is paused at scaffold state while m4l v1
-ships; it will get its own architecture ADR(s) when picked up. Engine
-spec and shared test vectors carry over via ADR 001; the m4l-specific
-ADRs (002–004) do not necessarily apply (e.g. two-device topology may
-become single-plugin in VST).
+VST is post-v1. ADR 007 fulfills ADR 005 §VST/AU posture's
+delegation by specifying the C++17 / JUCE plugin architecture
+(formats, source layout, APVTS surface, MIDI processing, editor
+ported from inboil's `TuringSheet.svelte`, build via CMake +
+`clap-juce-extensions` per oedipa's production-shipped template).
+Engine semantics + test vectors carry over from ADR 001; the
+m4l-specific ADRs (002–004) do not apply (vst is a fresh JUCE
+implementation, not an m4l UI port).
 
 | #   | Title | Status | Notes |
 |-----|-------|--------|-------|
+| 007 | [Stencil VST architecture — JUCE MIDI Effect (VST3 + AU + CLAP)](007-vst-architecture.md) | Proposed | C++17 engine port with byte-identical RNG/TM vs m4l, APVTS-backed canonical parameter surface, transport-driven sample-accurate MIDI processing with hung-note discipline, JUCE editor ported from inboil's `TuringSheet.svelte` (ring + revolver rotation + history bars + 4-fieldset right rail), CMake build matrix matching oedipa's VST3 + AU + CLAP template (clap-juce-extensions submodule). macOS host scope inherits oedipa's: Logic + Bitwig primary, Reaper + Studio One best-effort; Live = m4l only, Cubase / FL out of scope on host-policy grounds. |
