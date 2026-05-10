@@ -93,6 +93,7 @@ juce_add_plugin(Stencil
     PLUGIN_CODE "Stnl"
     FORMATS VST3 AU Standalone
     PRODUCT_NAME "Stencil"
+    COPY_PLUGIN_AFTER_BUILD TRUE
 )
 
 # The plugin target itself owns no sources; everything lives in
