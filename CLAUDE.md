@@ -83,7 +83,9 @@ vst/                 — VST3 + AU MIDI Effect plugin (C++17/JUCE)
     PluginProcessor.*  — MIDI processing, Turing Machine engine
     PluginEditor.*     — GUI (shift register visualization)
   JUCE/              — JUCE framework (git submodule)
+  clap-juce-extensions/  — CLAP wrapper for JUCE plugins (git submodule, 0.26.x)
   tests/             — Catch2 unit tests
+  scripts/           — build helpers (check-artefacts.sh)
   CMakeLists.txt, Makefile
 docs/ai/             — design docs, ADRs, test vectors
   concept.md
@@ -155,10 +157,11 @@ self-contained and works on any Live install. See ADR 006
 
 ```bash
 cd vst
-make build     # configure + build (Release)
+make build     # configure + build (Release) — produces VST3 + AU + CLAP + Standalone
 make debug     # configure + build (Debug)
 make clean     # remove build directory
 make test      # build + run tests
+./scripts/check-artefacts.sh   # validate all four bundles are present
 ```
 
 ## Design

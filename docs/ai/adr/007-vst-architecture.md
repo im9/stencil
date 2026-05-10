@@ -742,17 +742,18 @@ pass at every phase boundary.
 
 ### Phase 4 — CLAP wiring + format matrix
 
-- [ ] Add `clap-juce-extensions` as a git submodule pinned to
-      `0.26.x` (matches oedipa). Update top-level `git clone
-      --recursive` instructions in `CLAUDE.md` §Setup.
-- [ ] CMake `clap_juce_extensions_plugin(TARGET Stencil ...)` with
+- [x] Add `clap-juce-extensions` as a git submodule pinned to
+      `0.26.x` (matches oedipa, exact commit
+      `e8de9e8571626633b8541a54c2406fccc4272767`). Update top-level
+      `git clone --recursive` instructions in `CLAUDE.md` §Setup.
+- [x] CMake `clap_juce_extensions_plugin(TARGET Stencil ...)` with
       `CLAP_FEATURES "note-effect utility"`, `CLAP_ID
       "com.im9.stencil"`, `CLAP_MANUAL_URL` / `CLAP_SUPPORT_URL`
-      pointing at the (private) GitHub repo.
-- [ ] `make build` produces VST3 + AU + CLAP artifacts in
+      pointing at the (planned) GitHub repo.
+- [x] `make build` produces VST3 + AU + CLAP artifacts in
       `build/Stencil_artefacts/Release/{VST3,AU,CLAP}/`. Add
       `scripts/check-artefacts.sh` (port from oedipa) to validate
-      bundle layout.
+      bundle layout, exposed via `make verify-artefacts`.
 
 ### Phase 5 — JUCE-version-specific guards & docs
 

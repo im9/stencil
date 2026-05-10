@@ -1,4 +1,4 @@
-.PHONY: build configure release debug clean open kill test
+.PHONY: build configure release debug clean open kill test verify-artefacts
 
 build: configure release
 
@@ -24,3 +24,6 @@ open:
 
 kill:
 	@pkill -x Stencil 2>/dev/null || true
+
+verify-artefacts:
+	./scripts/check-artefacts.sh build Release

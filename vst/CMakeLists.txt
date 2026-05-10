@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_subdirectory(JUCE)
+add_subdirectory(clap-juce-extensions EXCLUDE_FROM_ALL)
 
 # --- Test dependencies (ADR 007 Phase 1) --------------------------------------
 include(FetchContent)
@@ -134,6 +135,21 @@ target_compile_definitions(Stencil PRIVATE
     JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
+)
+
+# --- CLAP wrapper (ADR 007 Phase 4) -------------------------------------------
+# clap-juce-extensions creates the Stencil_CLAP target from the existing
+# Stencil plugin target, producing Stencil.clap alongside VST3 / AU /
+# Standalone. CLAP_FEATURES "note-effect utility" matches oedipa's tag
+# for the same MIDI-effect identity (concept.md §Topology — single-purpose
+# MIDI effect). URLs point at the planned distribution repo even though
+# the repo is currently private — CLAP hosts surface them in the plug-in
+# info panel and the placeholder is fine until the public release lands.
+clap_juce_extensions_plugin(TARGET Stencil
+    CLAP_ID "com.im9.stencil"
+    CLAP_FEATURES note-effect utility
+    CLAP_MANUAL_URL "https://github.com/im9/stencil"
+    CLAP_SUPPORT_URL "https://github.com/im9/stencil/issues"
 )
 
 # --- Tests --------------------------------------------------------------------
