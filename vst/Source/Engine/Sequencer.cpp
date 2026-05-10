@@ -58,51 +58,6 @@ std::vector<StepBoundary> detectBoundaries(double startPpq,
     return result;
 }
 
-// ─── NotesOn ─────────────────────────────────────────────────────────────
-
-bool NotesOn::add(int pitch, int channel)
-{
-    for (const auto& a : active_)
-    {
-        if (a.first == pitch && a.second == channel)
-            return false;
-    }
-    active_.emplace_back(pitch, channel);
-    return true;
-}
-
-bool NotesOn::remove(int pitch, int channel)
-{
-    for (auto it = active_.begin(); it != active_.end(); ++it)
-    {
-        if (it->first == pitch && it->second == channel)
-        {
-            active_.erase(it);
-            return true;
-        }
-    }
-    return false;
-}
-
-std::vector<StepEvent> NotesOn::flushAsNoteOff(int sampleOffset)
-{
-    std::vector<StepEvent> events;
-    events.reserve(active_.size());
-    for (const auto& a : active_)
-    {
-        StepEvent e;
-        e.kind = StepEvent::Kind::NoteOff;
-        e.sampleOffset = sampleOffset;
-        e.note = a.first;
-        e.velocity = 0;
-        e.channel = a.second;
-        e.delayInSteps = 0.0;
-        events.push_back(e);
-    }
-    active_.clear();
-    return events;
-}
-
 // ─── Sequencer ───────────────────────────────────────────────────────────
 
 Sequencer::Sequencer() : Sequencer(SequencerParams{}) {}

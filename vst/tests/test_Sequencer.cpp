@@ -1,6 +1,5 @@
 // Sequencer tests per ADR 007 Phase 1:
 //   - subdivisionsPerQuarter / detectBoundaries (PPQ → step events)
-//   - NotesOn add / remove / flush
 //   - Sequencer mode dispatch (Note / Gate / Velocity)
 //   - Sequencer triggerMode branches (Auto / Gate-no-input / Gate-with-input
 //     / Seed-pre-activation / Seed-post-activation)
@@ -20,14 +19,12 @@
 using stencil::engine::createRegister;
 using stencil::engine::detectBoundaries;
 using stencil::engine::Mode;
-using stencil::engine::NotesOn;
 using stencil::engine::RegisterBits;
 using stencil::engine::RngState;
 using stencil::engine::seedRng;
 using stencil::engine::Sequencer;
 using stencil::engine::SequencerParams;
 using stencil::engine::StepBoundary;
-using stencil::engine::StepEvent;
 using stencil::engine::StepOutput;
 using stencil::engine::Subdivision;
 using stencil::engine::subdivisionsPerQuarter;
@@ -122,49 +119,6 @@ TEST_CASE("detectBoundaries 8T @ 120bpm — three steps per quarter",
     CHECK(b[0].sampleOffset == 0);
     CHECK(b[1].sampleOffset == 8000);
     CHECK(b[2].sampleOffset == 16000);
-}
-
-// ─── NotesOn ───────────────────────────────────────────────────────────────
-
-TEST_CASE("NotesOn add rejects duplicates", "[sequencer][notes_on]")
-{
-    NotesOn n;
-    CHECK(n.add(60, 1));
-    CHECK_FALSE(n.add(60, 1));        // same pitch+channel rejected
-    CHECK(n.add(60, 2));               // different channel allowed
-    CHECK(n.add(61, 1));               // different pitch allowed
-    CHECK(n.size() == 3);
-}
-
-TEST_CASE("NotesOn remove returns presence", "[sequencer][notes_on]")
-{
-    NotesOn n;
-    n.add(60, 1);
-    n.add(64, 1);
-    CHECK(n.remove(60, 1));
-    CHECK_FALSE(n.remove(60, 1));      // already removed
-    CHECK_FALSE(n.remove(99, 1));      // never added
-    CHECK(n.size() == 1);
-}
-
-TEST_CASE("NotesOn flushAsNoteOff yields one event per active note and clears",
-          "[sequencer][notes_on][panic]")
-{
-    NotesOn n;
-    n.add(60, 1);
-    n.add(64, 2);
-    n.add(67, 3);
-
-    const auto events = n.flushAsNoteOff(128);
-    REQUIRE(events.size() == 3);
-    for (const auto& e : events)
-    {
-        CHECK(e.kind == StepEvent::Kind::NoteOff);
-        CHECK(e.sampleOffset == 128);
-        CHECK(e.delayInSteps == 0.0);
-    }
-    CHECK(n.empty());
-    CHECK(n.flushAsNoteOff(128).empty());  // idempotent on empty
 }
 
 // ─── Sequencer — initial state & reset ─────────────────────────────────────

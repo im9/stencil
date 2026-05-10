@@ -100,21 +100,6 @@ struct StepEvent
     double delayInSteps = 0.0; // NoteOff only: delay as fraction of step
 };
 
-// ─── Hung-note tracker ─────────────────────────────────────────────────────
-
-class NotesOn
-{
-public:
-    bool add(int pitch, int channel);     // false if duplicate
-    bool remove(int pitch, int channel);  // true if found
-    std::vector<StepEvent> flushAsNoteOff(int sampleOffset);
-    bool empty() const { return active_.empty(); }
-    std::size_t size() const { return active_.size(); }
-
-private:
-    std::vector<std::pair<int, int>> active_;  // (pitch, channel)
-};
-
 // ─── Sequencer (per-step state machine) ────────────────────────────────────
 
 struct StepOutput
@@ -150,7 +135,8 @@ public:
 
     // Transport stop: clear input state, position; register preserved
     // (matches m4l so resume continues the same loop). Returns no events;
-    // caller flushes hung notes via NotesOn separately.
+    // hung-note flushing is the caller's responsibility (PluginProcessor
+    // drains pendingNoteOffs_ on transport stop).
     void onTransportStop();
 
     // Inspection (read-only)
