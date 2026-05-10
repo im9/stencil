@@ -757,10 +757,10 @@ pass at every phase boundary.
 
 ### Phase 5 — JUCE-version-specific guards & docs
 
-- [ ] `target_compile_definitions(Stencil PRIVATE
+- [x] `target_compile_definitions(Stencil PRIVATE
       JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1
       JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)` (matches oedipa).
-- [ ] Update [`CLAUDE.md`](../../../CLAUDE.md) §Build / §Layout for
+- [x] Update [`CLAUDE.md`](../../../CLAUDE.md) §Build / §Layout for
       vst section: source tree, `make` targets, format list, CLAP
       submodule.
 - [ ] Update [`docs/ai/adr/INDEX.md`](INDEX.md) — flip ADR 007

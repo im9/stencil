@@ -23,11 +23,11 @@ prototypes for one another.
   Live MIDI effect, Ableton-optimized. Fastest iteration path and
   matches the author's primary DAW workflow; ships as a standalone
   product.
-- `vst/` — **VST3 + AU MIDI Effect** plugin (C++17/JUCE). DAW-native,
-  cross-platform. Ships as a standalone product alongside m4l, on a
-  slower cadence. Per ADR 005, single-purpose MIDI Effect format
-  (VST3 + AU); paired in the DAW with Pointsman's vst plugin for
-  scale-locked chains.
+- `vst/` — **VST3 + AU + CLAP MIDI Effect** plugin (C++17/JUCE).
+  DAW-native, cross-platform. Ships as a standalone product alongside
+  m4l, on a slower cadence. Per ADR 005, single-purpose MIDI Effect
+  formats (VST3 + AU + CLAP); paired in the DAW with Pointsman's vst
+  plugin for scale-locked chains.
 
 Core logic, parameter design, and ADRs are shared across this repo's
 targets via `docs/ai/`. Code is not shared between targets — each
@@ -78,13 +78,27 @@ m4l/                 — Max for Live device (Stencil only)
   scripts/
     maxpat-to-amxd.mjs   bake script (single product, no argv)
   package.json, pnpm-workspace.yaml
-vst/                 — VST3 + AU MIDI Effect plugin (C++17/JUCE)
-  Source/            — Plugin source (TM only)
-    PluginProcessor.*  — MIDI processing, Turing Machine engine
-    PluginEditor.*     — GUI (shift register visualization)
-  JUCE/              — JUCE framework (git submodule)
+vst/                 — VST3 + AU + CLAP MIDI Effect plugin (C++17/JUCE)
+  Source/
+    Engine/          — pure C++17, no juce_* (iOS-reuse / test-link boundary)
+      Rng.{h,cpp}        xoshiro128++ + SplitMix64
+      Turing.{h,cpp}     createRegister, shiftAndFlip, shiftAndForce,
+                         registerToFraction, mapToNote, tmStep
+      Sequencer.{h,cpp}  PPQ → subdivision boundaries, hung-note tracker, panic
+    Plugin/          — JUCE AudioProcessor + APVTS
+      PluginProcessor.{h,cpp}
+      Parameters.{h,cpp} APVTS layout, IDs, ranges, defaults
+    Editor/          — JUCE Editor, inboil TuringSheet port
+      PluginEditor.{h,cpp}     top-level layout (header / body / history)
+      Theme.{h,cpp}            inboil palette + typography tokens
+      RingLogic.{h,cpp}        pure hit-test math (testable)
+      RingView.{h,cpp}         left-side bit ring (revolver rotation)
+      ActionsView.{h,cpp}      FREEZE / ROLL buttons
+      RightRailView.{h,cpp}    fieldset stack with APVTS attachments
+      HistoryView.{h,cpp}      bottom output-history bars
+  JUCE/              — JUCE framework (git submodule, 8.0.12+)
   clap-juce-extensions/  — CLAP wrapper for JUCE plugins (git submodule, 0.26.x)
-  tests/             — Catch2 unit tests
+  tests/             — Catch2 v3 unit tests (custom main owns JUCE init)
   scripts/           — build helpers (check-artefacts.sh)
   CMakeLists.txt, Makefile
 docs/ai/             — design docs, ADRs, test vectors
@@ -97,7 +111,7 @@ docs/ai/             — design docs, ADRs, test vectors
 ## Setup
 
 ```bash
-git clone --recursive <repo-url>   # fetches the JUCE submodule under vst/
+git clone --recursive <repo-url>   # fetches JUCE + clap-juce-extensions submodules under vst/
 ```
 
 ## Build
@@ -157,11 +171,12 @@ self-contained and works on any Live install. See ADR 006
 
 ```bash
 cd vst
-make build     # configure + build (Release) — produces VST3 + AU + CLAP + Standalone
-make debug     # configure + build (Debug)
-make clean     # remove build directory
-make test      # build + run tests
-./scripts/check-artefacts.sh   # validate all four bundles are present
+make build              # configure + build (Release) — produces VST3 + AU + CLAP + Standalone
+make debug              # configure + build (Debug)
+make clean              # remove build directory
+make test               # build + run tests
+make verify-artefacts   # validate VST3 + AU + CLAP + Standalone bundles are present
+make open               # launch the Standalone build (dev only)
 ```
 
 ## Design
