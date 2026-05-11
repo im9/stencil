@@ -34,9 +34,12 @@ void StencilEditor::paint(juce::Graphics& g)
     // Header row — title + 1 px divider, mirroring inboil .t-header.
     // Plugin window has no × button: the host owns close in VST3 / AU /
     // CLAP, and an in-editor × is either a no-op or fights the host.
+    // The plugin name itself is the host's responsibility (track header,
+    // window chrome) — we surface only the panel identity, matching
+    // inboil's TuringSheet header verbatim.
     g.setColour(theme::fg);
     g.setFont(theme::dataFont(theme::fsXl, true));
-    g.drawText("STENCIL  \xE2\x80\x94  TURING MACHINE",  // em-dash in UTF-8
+    g.drawText("TURING MACHINE",
                theme::railPad, 0,
                getWidth() - theme::railPad * 2, theme::headerHeight,
                juce::Justification::centredLeft);
