@@ -38,7 +38,9 @@ StencilProcessor::StencilProcessor()
     // ring view shows real bits at first paint (before processBlock has
     // had a chance to publish). Otherwise the editor opens to an all-
     // empty ring even though the engine already has a non-zero register.
-    registerSnapshot_.store(sequencer_.getRegister(), std::memory_order_relaxed);
+    // lastEmittedRegister == register here (Sequencer ctor initializes
+    // it to the freshly-created register).
+    registerSnapshot_.store(sequencer_.getLastEmittedRegister(), std::memory_order_relaxed);
 }
 
 StencilProcessor::~StencilProcessor()
@@ -201,13 +203,15 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
         sequencer_.reset();
         lastSeed_ = static_cast<int>(params.seed);
         lastLength_ = params.length;
-        // Reset cumulative step counter so the ring rotation realigns with
-        // the new (seed, length) pair. Otherwise ROLL would advance the
-        // visual rotation past the loop boundary, making the head pointer
-        // sit on a meaningless bit position.
+        // Reset cumulative step counter so the history strip realigns
+        // with the new (seed, length) pair. Otherwise ROLL would
+        // advance the visual position past the loop boundary.
         cumulativeStepsSnapshot_.store(0, std::memory_order_relaxed);
-        registerSnapshot_.store(sequencer_.getRegister(), std::memory_order_relaxed);
+        registerSnapshot_.store(sequencer_.getLastEmittedRegister(), std::memory_order_relaxed);
         mutatedBitSnapshot_.store(-1, std::memory_order_relaxed);
+        // Drop the playhead anchor: no recent step → RingView shows
+        // the static (rotation 0) frame until the next emission.
+        lastStepTimeMicros_.store(0, std::memory_order_relaxed);
     }
 
     // Read transport state.
@@ -259,8 +263,9 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
     {
         sequencer_.reset();
         cumulativeStepsSnapshot_.store(0, std::memory_order_relaxed);
-        registerSnapshot_.store(sequencer_.getRegister(), std::memory_order_relaxed);
+        registerSnapshot_.store(sequencer_.getLastEmittedRegister(), std::memory_order_relaxed);
         mutatedBitSnapshot_.store(-1, std::memory_order_relaxed);
+        lastStepTimeMicros_.store(0, std::memory_order_relaxed);
     }
 
     // Drain any noteOffs scheduled to fire in this block.
@@ -286,6 +291,18 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
 
         const int stepDur = stepDurationSamples(bpm, params.subdivision);
 
+        // Publish step duration for the editor's γ-anticipation phase
+        // computation. Derive from bpm + subdivision (rather than from
+        // `stepDur × sampleRate`) so the result is tempo-exact even for
+        // non-integer sample lengths per step.
+        if (bpm > 0.0)
+        {
+            const double stepUs = 60'000'000.0
+                / (bpm * engine::subdivisionsPerQuarter(params.subdivision));
+            stepDurationMicros_.store(static_cast<int64_t>(stepUs),
+                                      std::memory_order_relaxed);
+        }
+
         for (const auto& b : boundaries)
         {
             // Capture register before stepping so we can detect whether
@@ -298,26 +315,41 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
             // ring view, history strip, and center "fraction / note" text
             // see the freshest state. ADR 007 §Threading: relaxed atomic
             // store; eventually-consistent for the editor.
+            //
+            // Pre-shift register (Sequencer::getLastEmittedRegister) is
+            // what the editor renders so bit 0 == "bit just emitted" sits
+            // under the playhead triangle at the moment of sounding.
+            // Post-shift register is only used here to detect the
+            // shiftAndFlip mutation for the salmon highlight.
             const auto postStepReg = sequencer_.getRegister();
-            registerSnapshot_.store(postStepReg, std::memory_order_relaxed);
+            registerSnapshot_.store(sequencer_.getLastEmittedRegister(),
+                                    std::memory_order_relaxed);
             cumulativeStepsSnapshot_.fetch_add(1, std::memory_order_relaxed);
             lastNoteSnapshot_.store(o.note, std::memory_order_relaxed);
             lastActiveSnapshot_.store(o.active, std::memory_order_relaxed);
 
+            // γ-anticipation playhead anchor: timestamp this boundary so
+            // RingView can compute (now - lastStepTime) / stepDuration
+            // as the rotation phase. Microseconds give the editor enough
+            // resolution for sub-step animation timing on any sane bpm.
+            const auto nowUs = static_cast<int64_t>(
+                juce::Time::getMillisecondCounterHiRes() * 1000.0);
+            lastStepTimeMicros_.store(nowUs, std::memory_order_relaxed);
+
             // Mutated bit: shiftAndFlip writes the (possibly flipped) old
-            // LSB into the new MSB at (length-1). If the LSB was flipped,
-            // the new MSB differs — that bit is the visualization target
-            // (parity with inboil TuringSheet's salmon highlight).
-            // Equal pre/post register means the seed-active branch took
-            // (no shiftAndFlip), or shift-and-no-flip happened to land an
-            // identical register; both render as "no mutation."
+            // LSB into the new MSB. With the pre-shift snapshot in
+            // registerSnapshot_, that flipped bit is visible at bit 0 of
+            // the displayed register (the just-emitted bit), so the
+            // editor highlights index 0 salmon when a flip happened.
+            // preStepReg == postStepReg means the seed-active branch
+            // took (no shiftAndFlip), so no mutation either way.
             const int length = params.length;
             const auto oldBit0 = preStepReg & 1u;
             const auto newMsb = length > 0
                 ? (postStepReg >> (length - 1)) & 1u
                 : 0u;
             const int mutated = (preStepReg != postStepReg && oldBit0 != newMsb)
-                ? length - 1
+                ? 0
                 : -1;
             mutatedBitSnapshot_.store(mutated, std::memory_order_relaxed);
 

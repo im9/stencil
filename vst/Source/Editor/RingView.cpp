@@ -37,11 +37,11 @@ RingView::RingView(plugin::StencilProcessor& p)
     : processor_(p)
 {
     setOpaque(false);  // body fill comes from the editor's bg paint
-    // 15 Hz matches oedipa's LatticeView. The ring's two animated paths
-    // (rotation + head highlight) update on subdivision boundaries; 15 Hz
-    // is well above the human "stutter" threshold for a quarter-note grid
-    // without paying the resize-flicker cost of 60 Hz.
-    startTimerHz(15);
+    // 60 Hz so the γ-anticipation CW rotation animates smoothly through
+    // the last ~20% of each step (≈25 ms at 16th @ 120bpm). timerCallback
+    // gates the repaint on phase + snapshot change so the static window
+    // doesn't burn frames.
+    startTimerHz(60);
 }
 
 RingView::~RingView() { stopTimer(); }
@@ -73,11 +73,24 @@ void RingView::paint(juce::Graphics& g)
 {
     const auto geo = currentGeometry();
     const int len = currentLength(processor_.getApvts());
+    // Pre-shift register: bit 0 = bit the user is currently hearing,
+    // drawn at the un-rotated top position under the playhead triangle.
     const auto reg = processor_.getRegisterSnapshot();
-    const int steps = processor_.getCumulativeSteps();
-    const int reading = RingLogic::readingIndex(steps, len);
-    const float rotation = RingLogic::rotationDegrees(steps, len);
     const int mutated = processor_.getMutatedBitSnapshot();
+
+    // γ-anticipation phase: fraction of step elapsed since the last
+    // step boundary fired. Inputs come from atomic wall-clock anchors
+    // published by the audio thread; phase is clamped inside RingLogic.
+    const int64_t lastStepUs = processor_.getLastStepTimeMicros();
+    const int64_t stepDurUs  = processor_.getStepDurationMicros();
+    double phase = 0.0;
+    if (lastStepUs > 0 && stepDurUs > 0) {
+        const int64_t nowUs = static_cast<int64_t>(
+            juce::Time::getMillisecondCounterHiRes() * 1000.0);
+        phase = static_cast<double>(nowUs - lastStepUs)
+              / static_cast<double>(stepDurUs);
+    }
+    const float rotation = RingLogic::phaseRotationDegrees(phase, len);
 
     // 1) Faint guide circle (inboil .turing-sheet svg <circle> at opacity 0.15).
     g.setColour(theme::fgAlpha(0.15f));
@@ -98,37 +111,43 @@ void RingView::paint(juce::Graphics& g)
         g.fillPath(tri);
     }
 
-    // 3) Bit circles. Apply revolver rotation around the ring center, then
-    // draw each bit at its un-rotated logical position. The transform
-    // composes the two so the bit at logical index 0 ends up wherever
-    // the rotation places it — matching inboil's <g transform="rotate(...)">.
+    // 3) Bit circles. Apply γ-anticipation CW rotation around the ring
+    // center, then draw each bit at its un-rotated logical position.
+    // With CCW bit arrangement and CW rotation, bit 1 (upper-left)
+    // eases CW into the top during the last 20% of the step, then the
+    // snapshot snaps to the next register where bit 0 == previous bit 1
+    // (same value, continuous through the rotation reset).
     const auto centerPt = Point2{ geo.cx, geo.cy };
     g.saveState();
-    g.addTransform(juce::AffineTransform::rotation(juce::degreesToRadians(rotation),
-                                                   geo.cx, geo.cy));
+    g.addTransform(juce::AffineTransform::rotation(
+        juce::degreesToRadians(rotation), geo.cx, geo.cy));
     for (int i = 0; i < len; ++i) {
         const auto p = RingLogic::bitPosition(i, len, geo.radius, centerPt);
         const bool bitOn = ((reg >> i) & 1u) != 0u;
-        const bool isReading = (i == reading);
+        // Bit 0 of the pre-shift snapshot is always the just-emitted bit
+        // sitting under the playhead triangle. `mutated` is 0 when
+        // shiftAndFlip flipped that bit on the most recent step; salmon
+        // takes precedence so the flip event is unambiguous.
+        const bool isReading = (i == 0);
         const bool isMutated = (i == mutated);
 
         juce::Rectangle<float> circle(p.x - geo.bitRadius, p.y - geo.bitRadius,
                                       geo.bitRadius * 2.0f, geo.bitRadius * 2.0f);
 
-        if (isReading) {
-            // Reading-head highlight: open circle with a heavy olive stroke.
-            // Mirrors inboil .bit-reading: bg fill, olive stroke 2.5.
+        if (isMutated) {
+            // Salmon: shiftAndFlip just flipped this bit (parity with
+            // inboil .bit-mutated).
+            g.setColour(theme::salmon);
+            g.fillEllipse(circle);
+            g.drawEllipse(circle, 1.5f);
+        } else if (isReading) {
+            // Reading-head highlight on bit 0: open circle with heavy
+            // olive stroke (inboil .bit-reading). Reinforces the
+            // playhead triangle visually even when bit 0 is "off".
             g.setColour(theme::bg);
             g.fillEllipse(circle);
             g.setColour(theme::olive);
             g.drawEllipse(circle, 2.5f);
-        } else if (isMutated) {
-            // Salmon: shiftAndFlip just flipped this bit (parity with
-            // inboil .bit-mutated). Takes precedence over bit on/off so
-            // the flip is unambiguous regardless of the new bit value.
-            g.setColour(theme::salmon);
-            g.fillEllipse(circle);
-            g.drawEllipse(circle, 1.5f);
         } else if (bitOn) {
             g.setColour(theme::olive);
             g.fillEllipse(circle);
@@ -169,15 +188,21 @@ void RingView::mouseDown(const juce::MouseEvent& e)
     const auto geo = currentGeometry();
     const int len = currentLength(processor_.getApvts());
 
-    // Hit-test runs in un-rotated space: the user's click in component
-    // coordinates first has to be transformed back through the same
-    // rotation the paint loop applied. Otherwise clicking the visually
-    // top bit would resolve to whichever logical index happens to be
-    // there, not the bit-0 the user is aiming at.
-    const float steps = static_cast<float>(processor_.getCumulativeSteps());
+    // Hit-test runs in un-rotated space: invert the paint's γ-rotation
+    // so a click on the bit visually at top during the anticipation
+    // window resolves to the bit the user is aiming at.
+    const int64_t lastStepUs = processor_.getLastStepTimeMicros();
+    const int64_t stepDurUs  = processor_.getStepDurationMicros();
+    double phase = 0.0;
+    if (lastStepUs > 0 && stepDurUs > 0) {
+        const int64_t nowUs = static_cast<int64_t>(
+            juce::Time::getMillisecondCounterHiRes() * 1000.0);
+        phase = static_cast<double>(nowUs - lastStepUs)
+              / static_cast<double>(stepDurUs);
+    }
+    const float rotation = RingLogic::phaseRotationDegrees(phase, len);
     const auto inverse = juce::AffineTransform::rotation(
-        juce::degreesToRadians(RingLogic::rotationDegrees(static_cast<int>(steps), len)),
-        geo.cx, geo.cy).inverted();
+        juce::degreesToRadians(rotation), geo.cx, geo.cy).inverted();
     juce::Point<float> click = e.position;
     click.applyTransform(inverse);
 
@@ -198,17 +223,34 @@ void RingView::mouseDown(const juce::MouseEvent& e)
 
 void RingView::timerCallback()
 {
-    // Repaint only on visible-state change — register snapshot or step
-    // count. Editing a non-visible param (e.g. outputChannel) has no
-    // effect on the ring, so unconditional repaint would burn cycles
-    // mid-resize for no reason.
+    // Repaint on (a) snapshot / step-count change — must redraw bits +
+    // re-anchor the playhead; or (b) inside the γ-anticipation window
+    // where rotation is moving continuously. The static window (≥80%
+    // of each step) is the cheap early-out path.
     const auto reg = processor_.getRegisterSnapshot();
     const int steps = processor_.getCumulativeSteps();
+    bool dirty = false;
     if (reg != lastDrawnRegister_ || steps != lastDrawnSteps_) {
         lastDrawnRegister_ = reg;
         lastDrawnSteps_ = steps;
-        repaint();
+        dirty = true;
     }
+    if (!dirty) {
+        const int64_t lastStepUs = processor_.getLastStepTimeMicros();
+        const int64_t stepDurUs  = processor_.getStepDurationMicros();
+        if (lastStepUs > 0 && stepDurUs > 0) {
+            const int64_t nowUs = static_cast<int64_t>(
+                juce::Time::getMillisecondCounterHiRes() * 1000.0);
+            const double phase = static_cast<double>(nowUs - lastStepUs)
+                               / static_cast<double>(stepDurUs);
+            // Matches RingLogic::phaseRotationDegrees default animation
+            // start; a few-ms drift only delays the animation by one
+            // timer tick (~17ms @ 60Hz) which is below the perceptual
+            // floor.
+            if (phase > 0.8 && phase <= 1.05) dirty = true;
+        }
+    }
+    if (dirty) repaint();
 }
 
 }  // namespace editor

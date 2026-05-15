@@ -63,7 +63,8 @@ std::vector<StepBoundary> detectBoundaries(double startPpq,
 Sequencer::Sequencer() : Sequencer(SequencerParams{}) {}
 
 Sequencer::Sequencer(const SequencerParams& p)
-    : params_(p), register_(0), rng_{ { 0, 0, 0, 0 } }, position_(0), seedActivated_(false)
+    : params_(p), register_(0), lastEmittedRegister_(0),
+      rng_{ { 0, 0, 0, 0 } }, position_(0), seedActivated_(false)
 {
     recreateRegister();
 }
@@ -95,6 +96,11 @@ void Sequencer::recreateRegister()
 {
     rng_ = seedRng(static_cast<uint64_t>(params_.seed));
     register_ = createRegister(params_.length, rng_);
+    // Editor reads lastEmittedRegister_ as "register state at moment of
+    // last emission." Before any step runs, bit 0 of the initial register
+    // is the first to emit, so the initial value is also a valid "just
+    // about to emit" view; no special idle state needed.
+    lastEmittedRegister_ = register_;
 }
 
 bool Sequencer::channelMatches(int channel) const
@@ -187,6 +193,12 @@ StepOutput Sequencer::processStep()
     const uint64_t dThresh = probabilityThreshold(params_.density);
     const bool fillFire = dDraw < dThresh;
     const bool active = bit0 || fillFire;
+
+    // Capture pre-shift register so the editor renders "bit just emitted
+    // under the playhead at moment of sounding" (ADR 007 §Visual playhead
+    // alignment). Even in seed-active mode (no shift below) this captures
+    // the register state used for this step's bit-tap.
+    lastEmittedRegister_ = register_;
 
     // Register advancement: skip in seed-active state (input drives the
     // register; transport step is read-only in that mode).

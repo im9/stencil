@@ -141,6 +141,13 @@ public:
 
     // Inspection (read-only)
     RegisterBits getRegister() const { return register_; }
+    // Register state captured at the moment processStep read the LSB to
+    // determine the most recent emission's bit-tap source. Equals the
+    // initial register before any step has run, and equals register_
+    // itself in seed-active mode (no shift happens). Drives the editor's
+    // ring view so "bit just emitted" lands under the playhead triangle
+    // at the moment of sounding (ADR 007 §Visual — playhead alignment).
+    RegisterBits getLastEmittedRegister() const { return lastEmittedRegister_; }
     int getPosition() const { return position_; }
     bool isSeedActivated() const { return seedActivated_; }
     std::size_t heldInputCount() const { return heldInputs_.size(); }
@@ -148,6 +155,7 @@ public:
 private:
     SequencerParams params_;
     RegisterBits register_;
+    RegisterBits lastEmittedRegister_;
     RngState rng_;
     int position_;
     std::vector<std::pair<int, int>> heldInputs_;  // (pitch, channel) for gate mode

@@ -1,13 +1,15 @@
-// Bit ring with revolver rotation, head-bit highlight, and center
-// fraction / note text (ADR 007 §Editor — inboil TuringSheet port).
+// Bit ring with γ-anticipation playhead, head-bit highlight, and center
+// fraction / note text (ADR 007 §Editor — inboil TuringSheet port +
+// §Visual playhead alignment fix).
 //
 // Logic / renderer split (CLAUDE.md §GUI / UI components):
-//   - Geometry, hit-testing, and click→ROLL resolution are in RingLogic
-//     (no JUCE), unit-tested in tests/test_RingLogic.cpp.
+//   - Geometry, hit-testing, and rotation math live in RingLogic (no
+//     JUCE), unit-tested in tests/test_RingLogic.cpp.
 //   - This file is the renderer + JUCE event glue. The paint loop reads
-//     the processor's atomic register snapshot and the APVTS-backed
-//     length, then draws bits at angular positions rotated by
-//     RingLogic::rotationDegrees.
+//     the processor's atomic pre-shift register snapshot (bit 0 = bit
+//     just emitted, sitting under the playhead triangle) and computes
+//     rotation from (wallNow - lastStepTime) / stepDuration via
+//     RingLogic::phaseRotationDegrees.
 //
 // Click semantics: ADR 007 §FREEZE / ROLL semantics — vst v1 routes any
 // bit-circle hit to ROLL (re-seed). Direct bit edits require persistent

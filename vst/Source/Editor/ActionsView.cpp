@@ -11,10 +11,15 @@ namespace editor {
 ActionsView::ActionsView(plugin::StencilProcessor& p)
     : processor_(p)
 {
+    // Match RightRailView's pill style so the FREEZE active state and the
+    // Mode pills read as the same kind of "engaged" affordance — light
+    // olive fill + olive text. ROLL is momentary so it only ever shows
+    // the off colours.
     auto styleButton = [](juce::TextButton& b) {
-        b.setColour(juce::TextButton::buttonColourId, theme::bg);
-        b.setColour(juce::TextButton::textColourOffId, theme::fg);
-        b.setColour(juce::TextButton::textColourOnId, theme::blue);
+        b.setColour(juce::TextButton::buttonColourId,   theme::bg);
+        b.setColour(juce::TextButton::buttonOnColourId, theme::oliveBg);
+        b.setColour(juce::TextButton::textColourOffId,  theme::fgAlpha(0.5f));
+        b.setColour(juce::TextButton::textColourOnId,   theme::olive);
     };
     styleButton(freezeBtn_);
     styleButton(rollBtn_);
@@ -49,13 +54,13 @@ void ActionsView::timerCallback()
     // Track external lock changes (DAW automation, preset recall) so the
     // FREEZE button's frozen / not-frozen visual stays in sync without
     // requiring us to subscribe to APVTS::Listener (which fires on the
-    // message thread anyway).
+    // message thread anyway). Toggling the state alone drives the
+    // visual change — buttonOnColourId / textColourOnId from the pill
+    // style produce the active-pill look.
     const float lock = *processor_.getApvts().getRawParameterValue(plugin::pid::lock);
     if (lock != lastDrawnLock_) {
         const bool frozen = (lock == 1.0f);
         freezeBtn_.setToggleState(frozen, juce::dontSendNotification);
-        // textColourOnId is `blue` for the frozen state; toggling drives
-        // the visual change without a custom paint override.
         lastDrawnLock_ = lock;
     }
 }

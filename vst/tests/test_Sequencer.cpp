@@ -527,6 +527,81 @@ TEST_CASE("Sequencer onTransportStop clears input state and position",
     CHECK_FALSE(seq.isSeedActivated());
 }
 
+// ─── Sequencer — lastEmittedRegister (pre-shift snapshot) ─────────────────
+
+TEST_CASE("Sequencer.lastEmittedRegister captures register state at moment "
+          "LSB was read for emission",
+          "[sequencer][snapshot]")
+{
+    // Justification: ADR 007 §Visual — playhead alignment fix. The editor's
+    // ring view renders "bit just emitted sits under the playhead triangle
+    // at the moment of sounding." processStep reads register_'s LSB BEFORE
+    // shiftAndFlip consumes it; that pre-shift register is what the editor
+    // must display. Without this snapshot the editor only sees the post-
+    // shift register where the just-emitted bit no longer exists.
+    SequencerParams p;
+    p.seed = 42;
+    p.length = 8;
+    p.lock = 0.5;
+    p.density = 1.0;
+    Sequencer seq(p);
+    for (int i = 0; i < 20; ++i) {
+        const RegisterBits preShift = seq.getRegister();
+        seq.processStep();
+        CHECK(seq.getLastEmittedRegister() == preShift);
+    }
+}
+
+TEST_CASE("Sequencer.lastEmittedRegister at construction equals initial register",
+          "[sequencer][snapshot]")
+{
+    // Justification: before any step has run, the editor needs a sane
+    // initial snapshot. Bit 0 of the initial register == first bit to be
+    // emitted, which is consistent with the post-emission view (bit 0 ==
+    // just-emitted). No special "no emission yet" state required.
+    SequencerParams p;
+    p.seed = 1;
+    p.length = 8;
+    Sequencer seq(p);
+    CHECK(seq.getLastEmittedRegister() == seq.getRegister());
+}
+
+TEST_CASE("Sequencer.reset() resets lastEmittedRegister to initial register",
+          "[sequencer][snapshot]")
+{
+    // Justification: transport-start re-seeds the register; the editor's
+    // last-emitted view must follow so the ring shows the fresh loop's
+    // bit-0 rather than the stale just-emitted bit from the prior loop.
+    SequencerParams p;
+    p.seed = 1;
+    p.length = 8;
+    Sequencer seq(p);
+    for (int i = 0; i < 5; ++i) seq.processStep();
+    seq.reset();
+    CHECK(seq.getLastEmittedRegister() == seq.getRegister());
+}
+
+TEST_CASE("Sequencer.lastEmittedRegister in seed-active mode equals register",
+          "[sequencer][snapshot]")
+{
+    // Justification: in seed-active mode, processStep does NOT shift the
+    // register (input drives it). pre-shift == post-step == register_, so
+    // the editor still sees a coherent "bit 0 = just emitted" view even
+    // though no shift happened. The LSB was still read for the emission's
+    // bit-tap decision.
+    SequencerParams p;
+    p.seed = 1;
+    p.length = 8;
+    p.triggerMode = TriggerMode::Seed;
+    Sequencer seq(p);
+    seq.onInputNoteOn(60, 1);
+    REQUIRE(seq.isSeedActivated());
+    const RegisterBits regBefore = seq.getRegister();
+    seq.processStep();
+    CHECK(seq.getLastEmittedRegister() == regBefore);
+    CHECK(seq.getRegister() == regBefore);
+}
+
 TEST_CASE("Sequencer onTransportStop preserves register (resume-the-loop)",
           "[sequencer][transport]")
 {

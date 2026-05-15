@@ -59,8 +59,11 @@ private:
     std::unique_ptr<SliderAttachment> lengthAtt_, lockAtt_, densityAtt_;
 
     // ── Mode (radio pills) ────────────────────────────────────────
+    // Full lower-case names: the pill row has plenty of horizontal
+    // budget (≈80 px per pill at default size), so the inboil-style
+    // 3-letter abbreviation just sacrificed legibility for no gain.
     std::array<juce::TextButton, 3> modePills_{
-        juce::TextButton{ "NOT" }, juce::TextButton{ "GAT" }, juce::TextButton{ "VEL" } };
+        juce::TextButton{ "note" }, juce::TextButton{ "gate" }, juce::TextButton{ "vel" } };
 
     // ── Output ────────────────────────────────────────────────────
     juce::Slider rangeLoSlider_, rangeHiSlider_;
@@ -77,8 +80,8 @@ private:
     // inboil counterpart so the ADR layout sketch is canonical.
     std::array<juce::TextButton, 3> triggerPills_{
         juce::TextButton{ "AUTO" }, juce::TextButton{ "GATE" }, juce::TextButton{ "SEED" } };
-    juce::Slider inputChannelSlider_;
-    std::unique_ptr<SliderAttachment> inputChannelAtt_;
+    juce::ComboBox inputChannelCombo_;
+    std::unique_ptr<ComboBoxAttachment> inputChannelAtt_;
 
     // ── Reproducibility ───────────────────────────────────────────
     juce::Slider seedSlider_;

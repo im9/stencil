@@ -64,15 +64,32 @@ public:
     // Audio thread publishes after each step; editor thread reads with no
     // locking. Eventually-consistent — the editor may show a register one
     // step behind under load; never used as the source of MIDI emission.
+    //
+    // `registerSnapshot_` carries the *pre-shift* register state — the
+    // value whose LSB was just consumed for emission. Bit 0 of this
+    // register is the bit the user is currently hearing, which lets the
+    // editor render "bit just emitted under the playhead triangle at
+    // moment of sounding" (ADR 007 §Visual playhead alignment).
     engine::RegisterBits getRegisterSnapshot() const { return registerSnapshot_.load(std::memory_order_relaxed); }
     int  getCumulativeSteps() const { return cumulativeStepsSnapshot_.load(std::memory_order_relaxed); }
     int  getLastNote() const        { return lastNoteSnapshot_.load(std::memory_order_relaxed); }
     bool getLastActive() const      { return lastActiveSnapshot_.load(std::memory_order_relaxed); }
-    // Index of the bit that shiftAndFlip just flipped, or -1 if no flip
-    // happened on the most recent step. Drives the salmon highlight in
-    // RingView (ADR 007 §Audit follow-ups, parity with inboil
-    // TuringSheet's `bit-mutated` style).
+    // 0 when shiftAndFlip flipped the just-emitted bit (the new MSB
+    // value differs from the consumed LSB), -1 otherwise. With the
+    // pre-shift snapshot the flipped bit lives at LSB (index 0) of the
+    // displayed register — not at the post-shift MSB position. Drives
+    // the salmon "mutated" highlight in RingView.
     int  getMutatedBitSnapshot() const { return mutatedBitSnapshot_.load(std::memory_order_relaxed); }
+
+    // ── γ-anticipation playhead timing (ADR 007 §Visual) ──────────────────
+    // Wall-clock timestamp of the most recent step boundary in
+    // microseconds (from juce::Time::getMillisecondCounterHiRes), and
+    // the duration of a single subdivision step at the current bpm.
+    // RingView computes `phase = (now - lastStepTime) / stepDuration`
+    // and feeds that to RingLogic::phaseRotationDegrees so the ring
+    // eases CW into the next emission across the last 20% of each step.
+    int64_t getLastStepTimeMicros() const { return lastStepTimeMicros_.load(std::memory_order_relaxed); }
+    int64_t getStepDurationMicros() const { return stepDurationMicros_.load(std::memory_order_relaxed); }
 
 private:
     juce::AudioProcessorValueTreeState apvts;
@@ -114,18 +131,25 @@ private:
     std::atomic<bool> flushPendingRequested_{false};
 
     // Editor-thread snapshots, published after each step from processBlock.
-    // Default register=0 is fine: the editor reads "current register bits"
-    // and 0 just renders an all-empty ring until the first step lands.
+    // Carries the pre-shift register (Sequencer::getLastEmittedRegister)
+    // so bit 0 = "bit just emitted" lines up with the playhead triangle
+    // at the moment of sounding. Default 0 renders an all-empty ring
+    // until the first step lands; harmless because lastStepTimeMicros_
+    // stays 0 too so the editor stays in "static, no animation" mode.
     std::atomic<engine::RegisterBits> registerSnapshot_{0};
     std::atomic<int>  cumulativeStepsSnapshot_{0};
     std::atomic<int>  lastNoteSnapshot_{60};
     std::atomic<bool> lastActiveSnapshot_{false};
-    // -1 = no flip on the most recent step. Otherwise the bit index
-    // that shiftAndFlip just wrote with a value differing from the
-    // consumed LSB. Reset to -1 on prepareToPlay / setStateInformation
-    // / transport-start re-roll so a stale mutation doesn't linger
-    // through lifecycle resets.
+    // 0 = shiftAndFlip flipped the just-emitted bit (visible at LSB of
+    // the pre-shift snapshot), -1 = no flip. Reset to -1 on
+    // prepareToPlay / setStateInformation / transport-start re-roll
+    // so a stale mutation doesn't linger through lifecycle resets.
     std::atomic<int>  mutatedBitSnapshot_{-1};
+    // γ-anticipation playhead anchor + tempo. Microseconds keep the
+    // atomics lock-free on 64-bit platforms. Zero on idle / lifecycle
+    // reset so RingView treats "no recent step" as the static phase.
+    std::atomic<int64_t> lastStepTimeMicros_{0};
+    std::atomic<int64_t> stepDurationMicros_{0};
 
     // Range invariant listener: clamps rangeHi up when rangeLo crosses it,
     // and rangeLo down when rangeHi crosses it (matches m4l host setParam

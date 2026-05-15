@@ -35,6 +35,14 @@ void styleSlider(juce::Slider& s)
     s.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
 }
 
+void styleCombo(juce::ComboBox& c)
+{
+    c.setColour(juce::ComboBox::backgroundColourId, theme::bg);
+    c.setColour(juce::ComboBox::textColourId,       theme::fg);
+    c.setColour(juce::ComboBox::outlineColourId,    theme::lzBorderMid);
+    c.setColour(juce::ComboBox::arrowColourId,      theme::fg);
+}
+
 void stylePill(juce::TextButton& b)
 {
     b.setColour(juce::TextButton::buttonColourId,     theme::bg);
@@ -106,9 +114,7 @@ RightRailView::RightRailView(plugin::StencilProcessor& p)
     // so the indices match the engine enum directly.
     for (int i = 0; i < plugin::subdivisionChoices.size(); ++i)
         subdivisionCombo_.addItem(plugin::subdivisionChoices[i], i + 1);
-    subdivisionCombo_.setColour(juce::ComboBox::backgroundColourId, theme::bg);
-    subdivisionCombo_.setColour(juce::ComboBox::textColourId, theme::fg);
-    subdivisionCombo_.setColour(juce::ComboBox::outlineColourId, theme::lzBorderMid);
+    styleCombo(subdivisionCombo_);
     subdivisionAtt_ = std::make_unique<ComboBoxAttachment>(processor_.getApvts(), plugin::pid::subdivision, subdivisionCombo_);
     content_.addAndMakeVisible(subdivisionCombo_);
 
@@ -119,9 +125,15 @@ RightRailView::RightRailView(plugin::StencilProcessor& p)
         b.onClick = [this, i] { writeChoice(plugin::pid::triggerMode, i); };
         content_.addAndMakeVisible(b);
     }
-    styleSlider(inputChannelSlider_);
-    inputChannelAtt_ = std::make_unique<SliderAttachment>(processor_.getApvts(), plugin::pid::inputChannel, inputChannelSlider_);
-    content_.addAndMakeVisible(inputChannelSlider_);
+    // Input channel as a 17-item dropdown (OMNI / 1..16). Item index
+    // 0..16 maps directly to the AudioParameterInt value via
+    // ComboBoxAttachment, so the param range (0..16) is unchanged.
+    inputChannelCombo_.addItem("OMNI", 1);
+    for (int ch = 1; ch <= 16; ++ch)
+        inputChannelCombo_.addItem(juce::String(ch), ch + 1);
+    styleCombo(inputChannelCombo_);
+    inputChannelAtt_ = std::make_unique<ComboBoxAttachment>(processor_.getApvts(), plugin::pid::inputChannel, inputChannelCombo_);
+    content_.addAndMakeVisible(inputChannelCombo_);
 
     // ── Reproducibility ───────────────────────────────────────────
     styleSlider(seedSlider_);
@@ -289,20 +301,28 @@ void RightRailView::paintContent(juce::Graphics& g) const
     }
 
     // 3. Output
+    // Row 0 is a "RANGE" sub-heading; rows 1-2 are the LO / HI sliders
+    // sharing the same label column as VEL / GATE / SUBDIV below.
     {
         const int fy = outputFrameY_;
         drawFieldsetFrame(g, { frameX, fy, frameW, outputHeight_ }, "Output");
         const int valX = innerXv + innerW - kValueColW;
-        drawRowLabel(g, innerXv, rowY(0, fy), rh, "RANGE-LO");
-        drawRowLabel(g, innerXv, rowY(1, fy), rh, "RANGE-HI");
-        drawRowLabel(g, innerXv, rowY(2, fy), rh, "VEL");
-        drawRowLabel(g, innerXv, rowY(3, fy), rh, "GATE");
-        drawRowLabel(g, innerXv, rowY(4, fy), rh, "SUBDIV");
-        drawRowValue(g, valX, rowY(0, fy), kValueColW, rh, fmtInt(a, plugin::pid::rangeLo));
-        drawRowValue(g, valX, rowY(1, fy), kValueColW, rh, fmtInt(a, plugin::pid::rangeHi));
-        drawRowValue(g, valX, rowY(2, fy), kValueColW, rh, fmtInt(a, plugin::pid::outputVelocity));
-        drawRowValue(g, valX, rowY(3, fy), kValueColW, rh, fmtFloat2(a, plugin::pid::outputGate));
-        // Row 4 (SUBDIV) — combo box renders its own selected item; no
+
+        g.setColour(theme::fgAlpha(0.45f));
+        g.setFont(theme::dataFont(theme::fsSm, true));
+        g.drawText("RANGE", innerXv, rowY(0, fy), innerW, rh,
+                   juce::Justification::centredLeft);
+
+        drawRowLabel(g, innerXv, rowY(1, fy), rh, "LO");
+        drawRowLabel(g, innerXv, rowY(2, fy), rh, "HI");
+        drawRowLabel(g, innerXv, rowY(3, fy), rh, "VEL");
+        drawRowLabel(g, innerXv, rowY(4, fy), rh, "GATE");
+        drawRowLabel(g, innerXv, rowY(5, fy), rh, "SUBDIV");
+        drawRowValue(g, valX, rowY(1, fy), kValueColW, rh, fmtInt(a, plugin::pid::rangeLo));
+        drawRowValue(g, valX, rowY(2, fy), kValueColW, rh, fmtInt(a, plugin::pid::rangeHi));
+        drawRowValue(g, valX, rowY(3, fy), kValueColW, rh, fmtInt(a, plugin::pid::outputVelocity));
+        drawRowValue(g, valX, rowY(4, fy), kValueColW, rh, fmtFloat2(a, plugin::pid::outputGate));
+        // Row 5 (SUBDIV) — combo box renders its own selected item; no
         // separate value column needed.
     }
 
@@ -311,11 +331,8 @@ void RightRailView::paintContent(juce::Graphics& g) const
         const int fy = triggerFrameY_;
         drawFieldsetFrame(g, { frameX, fy, frameW, triggerHeight_ }, "Trigger");
         // Row 0 is the AUTO/GATE/SEED pill row (full-width, no label).
-        const int valX = innerXv + innerW - kValueColW;
+        // Row 1's value is rendered by the inputChannelCombo_ itself.
         drawRowLabel(g, innerXv, rowY(1, fy), rh, "IN-CH");
-        const int ch = static_cast<int>(*a.getRawParameterValue(plugin::pid::inputChannel));
-        drawRowValue(g, valX, rowY(1, fy), kValueColW, rh,
-                     ch == 0 ? juce::String("OMNI") : juce::String(ch));
     }
 
     // 5. Reproducibility
@@ -341,9 +358,11 @@ void RightRailView::resized()
 
     // Per-fieldset heights. Mode now has 2 rows (pill row + descriptor)
     // so the layout includes the inboil-parity `bits → pitch` hint.
+    // Output gains a "RANGE" sub-heading row above LO / HI, so it's 6
+    // rows total (RANGE, LO, HI, VEL, GATE, SUBDIV).
     paramsHeight_  = legendH + rh * 3 + gap * 2 + theme::groupPadY * 2;
     modeHeight_    = legendH + rh * 2 + gap * 1 + theme::groupPadY * 2;
-    outputHeight_  = legendH + rh * 5 + gap * 4 + theme::groupPadY * 2;
+    outputHeight_  = legendH + rh * 6 + gap * 5 + theme::groupPadY * 2;
     triggerHeight_ = legendH + rh * 2 + gap * 1 + theme::groupPadY * 2;
     reproHeight_   = legendH + rh * 1 + theme::groupPadY * 2;
 
@@ -380,16 +399,17 @@ void RightRailView::resized()
         y += modeHeight_ + theme::groupGap;
     }
 
-    // ── Output (RANGE-LO, RANGE-HI, VEL, GATE, SUBDIV) ────────────
+    // ── Output (RANGE sub-heading, LO, HI, VEL, GATE, SUBDIV) ─────
     {
         outputFrameY_ = y;
-        rangeLoSlider_       .setBounds(sliderX, rowY(0, y), sliderW, rh);
-        rangeHiSlider_       .setBounds(sliderX, rowY(1, y), sliderW, rh);
-        outputVelocitySlider_.setBounds(sliderX, rowY(2, y), sliderW, rh);
-        outputGateSlider_    .setBounds(sliderX, rowY(3, y), sliderW, rh);
+        // Row 0 is the "RANGE" sub-heading (paint-only, no slider).
+        rangeLoSlider_       .setBounds(sliderX, rowY(1, y), sliderW, rh);
+        rangeHiSlider_       .setBounds(sliderX, rowY(2, y), sliderW, rh);
+        outputVelocitySlider_.setBounds(sliderX, rowY(3, y), sliderW, rh);
+        outputGateSlider_    .setBounds(sliderX, rowY(4, y), sliderW, rh);
         // SUBDIV row uses a combo, so no separate value column — combo
         // takes the slider+value column width as its body.
-        subdivisionCombo_    .setBounds(sliderX, rowY(4, y), sliderW + kValueColW + kColGap, rh);
+        subdivisionCombo_    .setBounds(sliderX, rowY(5, y), sliderW + kValueColW + kColGap, rh);
         y += outputHeight_ + theme::groupGap;
     }
 
@@ -400,7 +420,8 @@ void RightRailView::resized()
         const int pillW = (innerW - 2 * kColGap) / 3;
         int x = innerX;
         for (auto& b : triggerPills_) { b.setBounds(x, row0, pillW, rh); x += pillW + kColGap; }
-        inputChannelSlider_.setBounds(sliderX, rowY(1, y), sliderW, rh);
+        // Combo takes the slider + value column width (same as SUBDIV).
+        inputChannelCombo_.setBounds(sliderX, rowY(1, y), sliderW + kValueColW + kColGap, rh);
         y += triggerHeight_ + theme::groupGap;
     }
 

@@ -39,7 +39,7 @@ void StencilEditor::paint(juce::Graphics& g)
     // inboil's TuringSheet header verbatim.
     g.setColour(theme::fg);
     g.setFont(theme::dataFont(theme::fsXl, true));
-    g.drawText("TURING MACHINE",
+    g.drawText("Stencil",
                theme::railPad, 0,
                getWidth() - theme::railPad * 2, theme::headerHeight,
                juce::Justification::centredLeft);

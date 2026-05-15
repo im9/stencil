@@ -34,14 +34,33 @@ TEST_CASE("bitPosition: bit 0 sits at top of the ring", "[editor][ring][geometry
     REQUIRE_THAT(p.y, Catch::Matchers::WithinAbs(20.0,  kEps));
 }
 
-TEST_CASE("bitPosition: quarter-turn lands at right", "[editor][ring][geometry]")
+TEST_CASE("bitPosition: quarter-turn lands at left (CCW arrangement)",
+          "[editor][ring][geometry]")
 {
-    // Justification: idx=length/4 advances by π/2, so angle becomes 0, and
-    // (cos, sin) = (1, 0). Bit length/4 should sit at center.x + R, center.y.
+    // Justification: CCW bit arrangement (bit 0 top, bit 1 upper-left,
+    // bit 2 left, ...). idx=length/4 advances CCW by π/2: angle =
+    // -(2/8)*2π - π/2 = -π, so (cos, sin) = (-1, 0). Bit length/4
+    // should sit at center.x - R, center.y. Picked to match inboil's
+    // CW visual value-flow; see ADR 007 §Visual playhead alignment.
     const Point2 c{125.0f, 125.0f};
-    const auto p = RingLogic::bitPosition(2, 8, 105.0f, c);  // 90° from top
-    REQUIRE_THAT(p.x, Catch::Matchers::WithinAbs(230.0, kEps));
+    const auto p = RingLogic::bitPosition(2, 8, 105.0f, c);
+    REQUIRE_THAT(p.x, Catch::Matchers::WithinAbs(20.0,  kEps));
     REQUIRE_THAT(p.y, Catch::Matchers::WithinAbs(125.0, kEps));
+}
+
+TEST_CASE("bitPosition: bit 1 sits at upper-left (CCW arrangement)",
+          "[editor][ring][geometry]")
+{
+    // Justification: with the CCW arrangement, bit 1 is at angle
+    // -(1/8)*2π - π/2 = -3π/4, i.e., upper-left of center. This is the
+    // arrangement that makes the register's right-shift look CW on
+    // screen — bit 1's value flowing to bit 0's slot is upper-left →
+    // top, a clockwise motion.
+    const Point2 c{125.0f, 125.0f};
+    const auto p = RingLogic::bitPosition(1, 8, 105.0f, c);
+    const float expected = 125.0f - 105.0f / std::sqrt(2.0f);  // ≈ 50.74
+    REQUIRE_THAT(p.x, Catch::Matchers::WithinAbs((double) expected, 0.01));
+    REQUIRE_THAT(p.y, Catch::Matchers::WithinAbs((double) expected, 0.01));
 }
 
 TEST_CASE("bitPosition: full sweep distributes around the circle", "[editor][ring][geometry]")
@@ -106,72 +125,75 @@ TEST_CASE("hitTest: each bit centroid resolves to its index", "[editor][ring][hi
     }
 }
 
-// ─── rotationDegrees ──────────────────────────────────────────────────────
+// ─── phaseRotationDegrees (γ-anticipation, CW) ───────────────────────────
+//
+// Reference: ADR 007 §Visual playhead alignment. With the CCW bit
+// arrangement (bit 0 top, bit 1 upper-left, ...) the right-shift
+// register's value flow looks CW on screen. The animation:
+//
+//   - Static rotation 0 for the first `animationStart` (default 0.8)
+//     of each step; bit 0 of the pre-shift snapshot sits at top under
+//     the triangle (= bit just emitted).
+//   - Last (1 - animationStart) fraction: rotation eases linearly
+//     from 0 to +360/length CW. Bit 1 of the snapshot (visually
+//     upper-left) sweeps CW toward top, landing there at phase=1.
+//   - At the next step boundary the snapshot snaps to R_{N+1} and
+//     rotation resets to 0. Bit 0 of R_{N+1} == bit 1 of R_N, so the
+//     value at the top is continuous through the reset.
 
-TEST_CASE("rotationDegrees: zero steps is zero degrees", "[editor][ring][rotation]")
+TEST_CASE("phaseRotationDegrees: zero rotation before animation window",
+          "[editor][ring][phase]")
 {
-    // Justification: at start of transport (cumulativeSteps=0), the ring
-    // must not be rotated — bit 0 sits at the top under the head pointer.
-    REQUIRE(RingLogic::rotationDegrees(0, 8) == 0.0f);
+    REQUIRE(RingLogic::phaseRotationDegrees(0.0,  8, 0.8) == 0.0f);
+    REQUIRE(RingLogic::phaseRotationDegrees(0.5,  8, 0.8) == 0.0f);
+    REQUIRE(RingLogic::phaseRotationDegrees(0.79, 8, 0.8) == 0.0f);
 }
 
-TEST_CASE("rotationDegrees: one full revolution every `length` steps", "[editor][ring][rotation]")
+TEST_CASE("phaseRotationDegrees: smooth zero-crossing at animationStart",
+          "[editor][ring][phase]")
 {
-    // Justification: inboil's stepAngle = 360 / length and rotationDeg =
-    // cumulativeSteps * stepAngle, so after `length` steps the ring is at
-    // 360°. The bit-loop completes exactly one revolution.
+    REQUIRE_THAT(RingLogic::phaseRotationDegrees(0.8, 8, 0.8),
+                 Catch::Matchers::WithinAbs(0.0, kEps));
+}
+
+TEST_CASE("phaseRotationDegrees: phase 1 lands at +360/length CW",
+          "[editor][ring][phase]")
+{
+    // Justification: at the end of the step the ring must have rotated
+    // CW by exactly one slot so that bit 1 of the snapshot (upper-left
+    // in the CCW arrangement) sits at the top. The next step's snap
+    // produces bit 0 of the new snapshot = bit 1 of the old, same value.
     for (int len : {2, 4, 8, 16, 32}) {
-        REQUIRE_THAT(RingLogic::rotationDegrees(len, len),
-                     Catch::Matchers::WithinAbs(360.0, kEps));
+        REQUIRE_THAT(RingLogic::phaseRotationDegrees(1.0, len, 0.8),
+                     Catch::Matchers::WithinAbs(+360.0 / len, kEps));
     }
 }
 
-TEST_CASE("rotationDegrees: half rotation matches half a loop", "[editor][ring][rotation]")
+TEST_CASE("phaseRotationDegrees: linear interpolation across the window",
+          "[editor][ring][phase]")
 {
-    // Justification: at step length/2, the ring is at 180°. Catches off-by-
-    // one or fencepost in the cumulativeSteps × stepAngle product.
-    REQUIRE_THAT(RingLogic::rotationDegrees(8, 16),
-                 Catch::Matchers::WithinAbs(180.0, kEps));
-}
-
-// ─── readingIndex ─────────────────────────────────────────────────────────
-
-TEST_CASE("readingIndex: -1 before any step has run", "[editor][ring][reading]")
-{
-    // Justification: inboil's `readingIdx` returns -1 when cumulativeSteps
-    // is 0 (no head highlight before transport advances). RingView reads
-    // -1 as "no bit-reading style for any index."
-    REQUIRE(RingLogic::readingIndex(0, 8) == -1);
-}
-
-TEST_CASE("readingIndex: after step 1 reads bit 0", "[editor][ring][reading]")
-{
-    // Justification: inboil's formula `(length - (cumulativeSteps - 1) %
-    // length) % length` evaluates to (length - 0) % length = 0 at
-    // cumulativeSteps=1 (bit 0 sits at top after no rotation). The very
-    // first step reads bit 0.
+    // Justification: pin the easing shape so the animation feel is
+    // consistent across tempos. Linear is the cheapest stable choice;
+    // switching to ease-out later would shift the midpoint expectation,
+    // so the test moves with it intentionally.
     for (int len : {2, 4, 8, 16, 32}) {
-        REQUIRE(RingLogic::readingIndex(1, len) == 0);
+        REQUIRE_THAT(RingLogic::phaseRotationDegrees(0.9, len, 0.8),
+                     Catch::Matchers::WithinAbs(+180.0 / len, kEps));
     }
 }
 
-TEST_CASE("readingIndex: after step 2 reads bit length-1", "[editor][ring][reading]")
+TEST_CASE("phaseRotationDegrees: clamps phase below 0 and above 1",
+          "[editor][ring][phase]")
 {
-    // Justification: at step 2, the ring has rotated by stepAngle, so the
-    // bit that was at index (length - 1) is now at the top. Inboil's
-    // formula yields (length - 1 % length) % length = length - 1.
-    REQUIRE(RingLogic::readingIndex(2, 8) == 7);
-    REQUIRE(RingLogic::readingIndex(2, 16) == 15);
+    REQUIRE(RingLogic::phaseRotationDegrees(-0.5, 8, 0.8) == 0.0f);
+    REQUIRE_THAT(RingLogic::phaseRotationDegrees(1.5, 8, 0.8),
+                 Catch::Matchers::WithinAbs(+45.0, kEps));
 }
 
-TEST_CASE("readingIndex: cycles back to 0 every length steps", "[editor][ring][reading]")
+TEST_CASE("phaseRotationDegrees: zero length returns zero",
+          "[editor][ring][phase]")
 {
-    // Justification: the ring revolves once every `length` steps, so bit
-    // indices read are periodic with period `length`. After step length+1,
-    // the read index returns to 0.
-    for (int len : {2, 4, 8, 16, 32}) {
-        REQUIRE(RingLogic::readingIndex(len + 1, len) == 0);
-    }
+    REQUIRE(RingLogic::phaseRotationDegrees(0.9, 0, 0.8) == 0.0f);
 }
 
 // ─── freezeAction ─────────────────────────────────────────────────────────

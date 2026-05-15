@@ -1,5 +1,6 @@
 #include "Editor/RingLogic.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace stencil {
@@ -13,7 +14,16 @@ constexpr float kPi = 3.14159265358979323846f;
 Point2 RingLogic::bitPosition(int idx, int length, float ringRadius, Point2 center)
 {
     if (length <= 0) return center;
-    const float angle = (static_cast<float>(idx) / static_cast<float>(length))
+    // CCW bit arrangement: bit 0 at top, bit 1 upper-LEFT, bit 2 left, etc.
+    //
+    // The register right-shifts on each step (bit i's value flows to bit
+    // i-1). With CCW indexing, that flow looks CW on screen: bit 1
+    // (upper-left) → bit 0 (top) is a CW motion. CW arrangement would
+    // force the visual flow to be CCW instead. We pick the arrangement
+    // that matches inboil's CW visual rotation expectation; the angle
+    // sign is the only difference from inboil's formula. See ADR 007
+    // §Visual playhead alignment for the geometry argument.
+    const float angle = -(static_cast<float>(idx) / static_cast<float>(length))
                         * 2.0f * kPi
                         - kPi * 0.5f;
     return Point2{
@@ -36,18 +46,16 @@ int RingLogic::hitTest(Point2 click, int length, float ringRadius,
     return -1;
 }
 
-float RingLogic::rotationDegrees(int cumulativeSteps, int length)
+float RingLogic::phaseRotationDegrees(double phase, int length,
+                                      double animationStart)
 {
     if (length <= 0) return 0.0f;
-    return static_cast<float>(cumulativeSteps)
-         * (360.0f / static_cast<float>(length));
-}
-
-int RingLogic::readingIndex(int cumulativeSteps, int length)
-{
-    if (length <= 0 || cumulativeSteps <= 0) return -1;
-    const int prev = (cumulativeSteps - 1) % length;
-    return ((length - prev) % length);
+    const double p = std::clamp(phase, 0.0, 1.0);
+    if (p <= animationStart) return 0.0f;
+    const double span = 1.0 - animationStart;
+    if (span <= 0.0) return 0.0f;
+    const double t = (p - animationStart) / span;  // 0..1 across the window
+    return static_cast<float>(+360.0 / static_cast<double>(length) * t);
 }
 
 FreezeResult RingLogic::freezeAction(float currentLock,

@@ -56,18 +56,25 @@ public:
     static int hitTest(Point2 click, int length, float ringRadius,
                        float bitRadius, Point2 center);
 
-    // Cumulative-step counter → ring rotation in degrees. Inboil's
-    // rotationDeg = cumulativeSteps * (360 / length): one full revolution
-    // per loop iteration. Returns 0 when `length` is 0 to avoid division
-    // by zero (no length means no ring to rotate).
-    static float rotationDegrees(int cumulativeSteps, int length);
-
-    // Index of the bit currently sitting under the read-head pointer,
-    // accounting for the ring's rotation. Inboil's $derived readingIdx:
-    //   cumulativeSteps > 0 ? (length - (cumulativeSteps - 1) % length) % length : -1
-    // Returns -1 before the first step (no bit highlighted at idle), so
-    // the renderer can apply the "reading" style only when active.
-    static int readingIndex(int cumulativeSteps, int length);
+    // γ-anticipation playhead rotation (ADR 007 §Visual playhead
+    // alignment). `phase` is the fraction of step elapsed since the
+    // last step boundary fired (clamped to [0, 1]); `animationStart`
+    // is the phase where the ring starts moving (everything before is
+    // static).
+    //
+    // Returns 0 for [0, animationStart], then linearly interpolates
+    // from 0 to +360/length CW across [animationStart, 1]. With the
+    // CCW bit arrangement (bit 1 at upper-left), a CW rotation by
+    // 360/length brings bit 1 of the pre-shift snapshot from upper-
+    // left to the top. PluginProcessor swaps the snapshot at the next
+    // step boundary; bit 0 of the new snapshot equals bit 1 of the
+    // old one, so the value at the top is continuous through the
+    // rotation reset to 0.
+    //
+    // Returns 0 for length <= 0 (degenerate; the APVTS range is
+    // [2, 32] but the math layer has no enforcement).
+    static float phaseRotationDegrees(double phase, int length,
+                                      double animationStart = 0.8);
 
     // FREEZE button press. ADR 007 §FREEZE / ROLL semantics — toggles
     // lock between the user's previous value and 1.0. Cold-start
