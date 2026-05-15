@@ -845,9 +845,11 @@ actually runs and passes; do not subdivide.
 
 ### Cross-target conformance (automated)
 
-- [ ] `make test` green: `test_Rng` (RNG vectors) + `test_Turing`
+- [x] `make test` green: `test_Rng` (RNG vectors) + `test_Turing`
       (TM vectors) byte-identical to m4l. The same JSON files are
       consumed by both targets; no per-target hand-written cases.
+      *(Verified 2026-05-15: 1455 assertions / 81 cases pass against
+      `docs/ai/rng-test-vectors.json` + `docs/ai/turing-test-vectors.json`.)*
 
 ### Host load matrix (manual, macOS)
 
@@ -900,10 +902,14 @@ Best-effort (load + smoke; not blocking for v1):
 
 ### Build hygiene
 
-- [ ] `scripts/check-artefacts.sh` reports VST3 + AU + CLAP
+- [x] `scripts/check-artefacts.sh` reports VST3 + AU + CLAP
       bundles present with valid Info.plist / manifest.
-- [ ] `make clean && make build && make test` from scratch
-      succeeds (cold-build sanity).
+      *(Verified 2026-05-15: VST3 + AU + CLAP + Standalone all
+      present in `build/Stencil_artefacts/Release/`.)*
+- [x] `make clean && make build && make test` from scratch
+      succeeds (cold-build sanity). *(Verified 2026-05-15: clean
+      → configure → build all 4 formats → 1455 assertions / 81
+      cases pass.)*
 
 Status flips to *Implemented* once every box above is ticked.
 Cross-platform Windows / Linux builds and code-signing /
@@ -923,11 +929,16 @@ Tag legend: `(code, vst)` / `(code, m4l)` / `(doc)`.
 
 ### Cross-target consistency
 
-- [ ] **mutated-bit salmon highlight in `vst` `RingView`** (code, vst)
+- [x] **mutated-bit salmon highlight in `vst` `RingView`** (code, vst)
       — inboil `TuringSheet.svelte` paints the bit just flipped by
       `shiftAndFlip` in `--color-salmon`; vst's `RingView::paint`
       ignores the salmon palette token. Add a per-step "mutated bit
       index" snapshot from the audio thread and read it in `paint`.
+      *(Done in commits `64989b6` then `d87f97b`: PluginProcessor
+      publishes `mutatedBitSnapshot_`; RingView paints the
+      just-emitted bit at index 0 in salmon when shiftAndFlip flipped
+      the consumed LSB, with the post-`d87f97b` pre-shift snapshot
+      semantics.)*
 - [ ] **`m4l` `setParam` flush misses `mode` + `outputChannel`** (code,
       m4l) — vst now flushes on these (this ADR's hung-note discipline
       fix); m4l-side `host.ts:setParam`'s `flushKeys` array still
@@ -1033,11 +1044,13 @@ Tag legend: `(code, vst)` / `(code, m4l)` / `(doc)`.
 
 ### Cleanup
 
-- [ ] **`engine::NotesOn` is dead code** (code, vst) — declared in
+- [x] **`engine::NotesOn` is dead code** (code, vst) — declared in
       `Engine/Sequencer.h` but `PluginProcessor` uses
       `pendingNoteOffs_` instead. Decide: surface `NotesOn` as the
       canonical hung-note tracker (and route `pendingNoteOffs_`
-      through it) or remove the class.
+      through it) or remove the class. *(Done in commit `74a2dc3`:
+      class removed; `pendingNoteOffs_` remains the canonical
+      tracker.)*
 - [x] **`RightRailView::pollTimer_` is dead code** (code, vst) —
       declared as `juce::Timer* pollTimer_ = nullptr` but never
       assigned; the actual pill-sync timer lives in `pillSync_`
