@@ -1,14 +1,19 @@
 // Stencil TM range-slider jsui.
 // Spec: m4l/host/ui/rangeSlider.logic.ts.
 //
-// Two-thumb horizontal MIDI-range slider, ~200x20 inside a bpatcher.
+// Two-thumb VERTICAL MIDI-range slider, ~56x148 inside a bpatcher. HI
+// thumb at top, LO at bottom -- pitch=up intuition (higher MIDI note
+// number = visually higher on screen). The slider sits next to the
+// register ring; same vertical extent (148 px) so the two read as a
+// "bits -> note range" pair in one visual unit.
+//
 // Drives rangeLo / rangeHi (MIDI notes 0..127). The lo <= hi invariant
-// is enforced inside the widget: dragging LO past HI pulls HI along,
+// is enforced inside the widget: dragging LO above HI pulls HI along,
 // and vice versa. The actual live.dial-rangeLo / -rangeHi widgets stay
 // off-presentation in Stencil.maxpat as the source-of-truth for Live's
 // parameter system; this jsui is the user-facing control on top.
 //
-// Palette: Live device-strip dark with an orange accent on the active
+// Palette: Live device-strip dark with a blue accent on the active
 // segment, matching Ableton's MIDI-effect colour language.
 //
 // Comments and string literals are ASCII; non-ASCII glyphs must be
@@ -21,7 +26,7 @@ mgraphics.init()
 mgraphics.relative_coords = 0
 mgraphics.autofill = 0
 
-post('rangeSlider.jsui.js loaded build=2026-05-16\n')
+post('rangeSlider.jsui.js loaded build=2026-05-17\n')
 
 // --- Constants (mirror m4l/host/ui/rangeSlider.logic.ts) ---
 
@@ -83,33 +88,33 @@ function clampValue(v) {
 function trackBounds() {
   var w = box.rect[2] - box.rect[0]
   var h = box.rect[3] - box.rect[1]
-  var left = TRACK_PAD
-  var right = w - TRACK_PAD
-  if (right < left) right = left
-  return { left: left, right: right, cy: h / 2, width: right - left }
+  var top = TRACK_PAD
+  var bottom = h - TRACK_PAD
+  if (bottom < top) bottom = top
+  return { top: top, bottom: bottom, cx: w / 2, height: bottom - top }
 }
 
-function valueToX(value, tr) {
+function valueToY(value, tr) {
   var v = Number(value)
   if (!isFinite(v) || v < MIN_VALUE) v = MIN_VALUE
   else if (v > MAX_VALUE) v = MAX_VALUE
   var t = (v - MIN_VALUE) / (MAX_VALUE - MIN_VALUE)
-  return tr.left + t * tr.width
+  return tr.bottom - t * tr.height
 }
 
-function xToValue(x, tr) {
-  if (tr.width <= 0) return MIN_VALUE
-  var t = (x - tr.left) / tr.width
+function yToValue(y, tr) {
+  if (tr.height <= 0) return MIN_VALUE
+  var t = (tr.bottom - y) / tr.height
   if (t < 0) t = 0
   if (t > 1) t = 1
   return Math.round(MIN_VALUE + t * (MAX_VALUE - MIN_VALUE))
 }
 
-function pickThumb(x, tr) {
-  var loX = valueToX(lo, tr)
-  var hiX = valueToX(hi, tr)
-  var dLo = Math.abs(x - loX)
-  var dHi = Math.abs(x - hiX)
+function pickThumb(y, tr) {
+  var loY = valueToY(lo, tr)
+  var hiY = valueToY(hi, tr)
+  var dLo = Math.abs(y - loY)
+  var dHi = Math.abs(y - hiY)
   var threshold = THUMB_RADIUS * HIT_RADIUS_MULT
   if (dLo > threshold && dHi > threshold) return -1
   return dLo <= dHi ? 0 : 1
@@ -137,47 +142,50 @@ function strokeCircle(x, y, r, c, lineW) {
 }
 
 function paint() {
-  var w = box.rect[2] - box.rect[0]
-  var h = box.rect[3] - box.rect[1]
   // No background fill: let Live's strip color show through.
 
   var tr = trackBounds()
-  var loX = valueToX(lo, tr)
-  var hiX = valueToX(hi, tr)
+  var loY = valueToY(lo, tr)
+  var hiY = valueToY(hi, tr)
 
-  // Track + thumbs in the upper portion of the canvas so the lower
-  // portion is free for the numeric value labels under each thumb. The
-  // logical hit-test uses x only (see pickThumb), so the visual y
-  // doesn't have to match tr.cy from logic.ts.
-  var trackY = h * 0.35
-  if (trackY < THUMB_RADIUS + 1) trackY = THUMB_RADIUS + 1
+  // Track sits on the LEFT half of the canvas; numeric value labels go
+  // to the RIGHT of the track. Track-x is offset from canvas center
+  // toward the left so labels have room without clipping the right
+  // edge.
+  var trackX = 12
+  if (trackX < THUMB_RADIUS + 1) trackX = THUMB_RADIUS + 1
 
-  // Inactive track (full width, dark grey).
-  fillRect(tr.left, trackY - TRACK_HEIGHT / 2, tr.width, TRACK_HEIGHT, COL_TRACK_BG, 1)
-  // Active segment [lo..hi] in Live blue accent.
-  fillRect(loX, trackY - TRACK_HEIGHT / 2, hiX - loX, TRACK_HEIGHT, COL_TRACK_ACTIVE, 1)
+  // Inactive track (full height, dark grey).
+  fillRect(trackX - TRACK_HEIGHT / 2, tr.top, TRACK_HEIGHT, tr.height, COL_TRACK_BG, 1)
+  // Active segment [lo..hi] in Live blue accent. hi is at lower y
+  // (top of canvas), lo is at higher y (bottom), so the active segment
+  // spans hiY..loY.
+  fillRect(trackX - TRACK_HEIGHT / 2, hiY, TRACK_HEIGHT, loY - hiY, COL_TRACK_ACTIVE, 1)
 
   // Thumbs: cream fill + dark outline for definition against the dark
   // strip.
-  fillCircle(loX, trackY, THUMB_RADIUS, COL_THUMB)
-  strokeCircle(loX, trackY, THUMB_RADIUS, COL_THUMB_RING, 1.0)
-  fillCircle(hiX, trackY, THUMB_RADIUS, COL_THUMB)
-  strokeCircle(hiX, trackY, THUMB_RADIUS, COL_THUMB_RING, 1.0)
+  fillCircle(trackX, loY, THUMB_RADIUS, COL_THUMB)
+  strokeCircle(trackX, loY, THUMB_RADIUS, COL_THUMB_RING, 1.0)
+  fillCircle(trackX, hiY, THUMB_RADIUS, COL_THUMB)
+  strokeCircle(trackX, hiY, THUMB_RADIUS, COL_THUMB_RING, 1.0)
 
-  // Numeric value labels under each thumb so the user sees the exact
-  // MIDI note at a glance. Approximated centering: Andale Mono 9pt is
-  // roughly 5.5 px/char.
-  var labelY = h - 4
-  drawLabelCenter(loX, labelY, String(lo))
-  drawLabelCenter(hiX, labelY, String(hi))
+  // Numeric value labels to the RIGHT of each thumb so the user sees
+  // the exact MIDI note at a glance. Andale Mono 9pt is roughly
+  // 5.5 px/char; the label is aligned to a fixed x so HI and LO line
+  // up vertically.
+  var labelX = trackX + THUMB_RADIUS + 4
+  drawLabel(labelX, hiY, String(hi))
+  drawLabel(labelX, loY, String(lo))
 }
 
-function drawLabelCenter(cx, baselineY, text) {
-  var width = text.length * 5.5
+function drawLabel(leftX, centerY, text) {
+  // 9pt baseline is roughly 3 px below the visual center -- the
+  // baseline correction lines the digits up with the thumb center.
+  var baselineY = centerY + 3
   mgraphics.set_source_rgba(COL_LABEL[0], COL_LABEL[1], COL_LABEL[2], 1)
   mgraphics.select_font_face('Andale Mono')
   mgraphics.set_font_size(9)
-  mgraphics.move_to(cx - width / 2, baselineY)
+  mgraphics.move_to(leftX, baselineY)
   mgraphics.show_text(text)
 }
 
@@ -187,10 +195,10 @@ function onclick(x, y, button, cmd, shift, capslock, option, ctrl) {
   if (button !== 1) return
   if (cmd || shift || option || ctrl) return
   var tr = trackBounds()
-  var pick = pickThumb(x, tr)
+  var pick = pickThumb(y, tr)
   if (pick < 0) return
   dragging = pick
-  updateFromX(x, tr)
+  updateFromY(y, tr)
 }
 
 function ondrag(x, y, button, cmd, shift, capslock, option, ctrl) {
@@ -202,11 +210,11 @@ function ondrag(x, y, button, cmd, shift, capslock, option, ctrl) {
   }
   if (cmd || shift || option || ctrl) return
   var tr = trackBounds()
-  updateFromX(x, tr)
+  updateFromY(y, tr)
 }
 
-function updateFromX(x, tr) {
-  var v = xToValue(x, tr)
+function updateFromY(y, tr) {
+  var v = yToValue(y, tr)
   if (dragging === 0) {
     if (v > hi) {
       hi = v

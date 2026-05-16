@@ -1,9 +1,11 @@
 // Two-thumb MIDI-range slider jsui pure logic.
 //
-// Pure data + math, no Max APIs. Runs in Node for tests. Mirrored (by
-// hand, ASCII-only) into rangeSlider.jsui.js for Max's [jsui] consumer.
-// A drift test (rangeSlider.mirror.test.ts) asserts the named constants
-// below appear in the renderer text.
+// Vertical orientation: HI at top of canvas, LO at bottom, so the visual
+// position matches pitch=up intuition (higher MIDI note number = visually
+// higher on screen). Pure data + math, no Max APIs. Runs in Node for
+// tests. Mirrored (by hand, ASCII-only) into rangeSlider.jsui.js for
+// Max's [jsui] consumer. A drift test (rangeSlider.mirror.test.ts)
+// asserts the named constants below appear in the renderer text.
 
 export const MIN_VALUE = 0;
 export const MAX_VALUE = 127;
@@ -11,11 +13,11 @@ export const MAX_VALUE = 127;
 // Thumb radius in pixels. Small to match Live's native widget scale.
 export const THUMB_RADIUS = 5;
 
-// Horizontal padding so thumb edges don't clip the canvas left/right
+// Vertical padding so thumb edges don't clip the canvas top/bottom
 // edges at the value extremes (LO=0 or HI=127). Must be >= THUMB_RADIUS.
 export const TRACK_PAD = 6;
 
-// Track line height.
+// Track line thickness (perpendicular to the value axis).
 export const TRACK_HEIGHT = 3;
 
 // Hit threshold multiplier on THUMB_RADIUS. >1 because users miss
@@ -23,40 +25,41 @@ export const TRACK_HEIGHT = 3;
 export const HIT_RADIUS_MULT = 2;
 
 export interface TrackBounds {
-  left: number;
-  right: number;
-  cy: number;
-  width: number;
+  top: number;
+  bottom: number;
+  cx: number;
+  height: number;
 }
 
 export function trackBounds(
   canvasWidth: number,
   canvasHeight: number,
 ): TrackBounds {
-  const left = TRACK_PAD;
-  const right = Math.max(left, canvasWidth - TRACK_PAD);
+  const top = TRACK_PAD;
+  const bottom = Math.max(top, canvasHeight - TRACK_PAD);
   return {
-    left,
-    right,
-    cy: canvasHeight / 2,
-    width: right - left,
+    top,
+    bottom,
+    cx: canvasWidth / 2,
+    height: bottom - top,
   };
 }
 
-export function valueToX(value: number, tr: TrackBounds): number {
+export function valueToY(value: number, tr: TrackBounds): number {
+  // High value at top (y=tr.top), low value at bottom (y=tr.bottom).
   // Range-clamp but do NOT round -- visual position is continuous so the
-  // slider can render automation-interpolated values smoothly. xToValue
+  // slider can render automation-interpolated values smoothly. yToValue
   // is the only path that rounds (user-input return path).
   let v = value;
   if (!Number.isFinite(v) || v < MIN_VALUE) v = MIN_VALUE;
   else if (v > MAX_VALUE) v = MAX_VALUE;
   const t = (v - MIN_VALUE) / (MAX_VALUE - MIN_VALUE);
-  return tr.left + t * tr.width;
+  return tr.bottom - t * tr.height;
 }
 
-export function xToValue(x: number, tr: TrackBounds): number {
-  if (tr.width <= 0) return MIN_VALUE;
-  let t = (x - tr.left) / tr.width;
+export function yToValue(y: number, tr: TrackBounds): number {
+  if (tr.height <= 0) return MIN_VALUE;
+  let t = (tr.bottom - y) / tr.height;
   if (t < 0) t = 0;
   if (t > 1) t = 1;
   return Math.round(MIN_VALUE + t * (MAX_VALUE - MIN_VALUE));
@@ -73,15 +76,15 @@ export function clampValue(v: number): number {
 // (no thumb in range). Equidistant clicks default to LO so the lower
 // endpoint gets priority when lo == hi.
 export function pickThumb(
-  x: number,
+  y: number,
   lo: number,
   hi: number,
   tr: TrackBounds,
 ): -1 | 0 | 1 {
-  const loX = valueToX(lo, tr);
-  const hiX = valueToX(hi, tr);
-  const dLo = Math.abs(x - loX);
-  const dHi = Math.abs(x - hiX);
+  const loY = valueToY(lo, tr);
+  const hiY = valueToY(hi, tr);
+  const dLo = Math.abs(y - loY);
+  const dHi = Math.abs(y - hiY);
   const threshold = THUMB_RADIUS * HIT_RADIUS_MULT;
   if (dLo > threshold && dHi > threshold) return -1;
   return dLo <= dHi ? 0 : 1;
@@ -93,15 +96,15 @@ export interface RangeState {
 }
 
 // Apply a drag event: given current state + which thumb is being
-// dragged + cursor x, return the new state. Enforces lo <= hi --
-// dragging LO past HI pulls HI along, and vice versa.
+// dragged + cursor y, return the new state. Enforces lo <= hi --
+// dragging LO above HI pulls HI along, and vice versa.
 export function applyDrag(
   state: RangeState,
   thumb: 0 | 1,
-  x: number,
+  y: number,
   tr: TrackBounds,
 ): RangeState {
-  const v = xToValue(x, tr);
+  const v = yToValue(y, tr);
   if (thumb === 0) {
     const lo = v;
     const hi = Math.max(state.hi, lo);

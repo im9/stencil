@@ -51,16 +51,17 @@ var POINTER_GAP = 4
 var POINTER_HALF_WIDTH = 3
 var POINTER_HEIGHT = 6
 
-// --- Palette: Live M4L device-strip dark + dual accent ---
+// --- Palette: Live M4L device-strip dark + single orange accent ---
 //
 // Background is left transparent so Live's strip color shows through.
-// Active bits use Live's blue accent; the read-head (trigger position
-// at the top of the ring) uses Live's orange so the bit currently
-// being played stands out from the rest of the active pattern.
+// Active bits use Ableton's mid-grey (the same tone Live uses for
+// live.* widget text). Only the read-head (trigger position at the
+// top of the ring) uses Live's orange so the bit currently being
+// played stands out from the rest of the active pattern.
 // Inactive bits get a dim grey outline.
 
-var COL_ACTIVE_FILL = [0.28, 0.63, 0.92]  // Live blue accent (active bits)
-var COL_OUTLINE     = [0.55, 0.55, 0.55]  // mid grey (inactive outline)
+var COL_ACTIVE_FILL = [0.72, 0.72, 0.72]  // Ableton mid-grey (active bits)
+var COL_OUTLINE     = [0.55, 0.55, 0.55]  // dim grey (inactive outline)
 var OUTLINE_ALPHA   = 0.85
 var COL_READHEAD    = [1.00, 0.66, 0.20]  // Live orange (trigger / read-head)
 var COL_POINTER     = [0.85, 0.85, 0.85]  // playhead triangle
