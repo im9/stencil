@@ -52,6 +52,18 @@ processing step 5 simplifies (no per-mode branch); §Output modes
 section replaced by §Output (single dispatch). m4l v1.0 still
 ships the old mode dispatch; spec divergence is intentional and
 m4l will follow.
+**Revised**: 2026-05-16 — `density` semantic changed from "fill
+empties" (`bit0 || densityDraw < density`) to "bit-tap gate"
+(`bit0 && densityDraw < density`). The old `||` form let
+density=1.0 fire every off-bit, which broke the visual contract
+(white ring bit = audible note). New semantic: off-bits are
+always silent; density is the firing probability for on-bits.
+default `density=1.0` still means "every on-bit plays" so the
+common-case ergonomics are preserved. The musical effect of
+density now reads as "rhythmic thinning" of the loop pattern,
+not "stochastic fill of empties." See §MIDI processing step 5c.
+m4l still ships the old `||` semantic; reconciliation in the
+m4l catchup release alongside the mode-removal carry-over.
 
 This ADR specifies the `vst/` target's architecture: the plugin formats
 shipped, the C++17 source layout (`Engine` / `Plugin` / `Editor`), the
@@ -397,13 +409,18 @@ Per-block:
    b. Draw one u32 from `rng` for the density decision (always
       consumed, regardless of bit-tap outcome).
    c. **Bit-tap active**:
-      `active = ((reg & 1) == 1) || (densityDraw < probabilityThreshold(density))`.
-      The LSB at the read head is the primary trigger (always fires
-      when set); density draws fill in on the empty bits. This
-      diverges from inboil's active rule
-      (`regValue > (1-density) * 0.5`) — Stencil uses bit-tap so the
-      LSB at the read head is audibly the primary rhythmic driver
-      and `density` is a "empty-bit fill" probability.
+      `active = ((reg & 1) == 1) && (densityDraw < probabilityThreshold(density))`.
+      The LSB at the read head is the gate: bit-0 steps are always
+      silent (visual contract — white circle = no sound). When LSB=1,
+      density is the probability that the gate opens, so `density`
+      acts as a "rhythmic thinning" knob applied to the bit pattern.
+      `density = 1.0` (default) opens the gate every time, so every
+      bit-1 step fires; lower density drops a fraction of bit-1 steps
+      stochastically. This is the 2026-05-16 revision; the earlier
+      `||` form let density fill in empty bits, but that broke the
+      visual / audio contract (white-bit-firing under default density)
+      and was the design defect the user surfaced. inboil's
+      `regValue > (1-density) * 0.5` active rule is not used here.
    d. If `active`, schedule `(note, velocity)` as a noteOn at the
       subdivision sample offset and the matching noteOff at
       `outputGate × stepDuration` later (clipped to the next step
@@ -437,8 +454,18 @@ inboil via ADR 003) is removed for vst as of the 2026-05-15
 revision. The old `gate` mode's "pitch = range midpoint" is
 recoverable by setting `rangeLo == rangeHi`. The old `velocity`
 mode's "velocity = (0.3 + frac × 0.7) × outputVelocity" is dropped
-without replacement — bit-pattern velocity modulation is a future
-extension if the musical need re-emerges.
+without replacement.
+
+**Spec stability + extension shape.** The single-dispatch model is the
+stable shape for v0.1 and onward. Future versions may add per-attribute
+modulation (e.g. "velocity follows reg" toggle + depth, reg-driven gate
+length, LFO / CC modulation sources) — see
+[concept.md §Future extensions][concept-future] for the design intent.
+Adding those means new orthogonal parameters in the APVTS layout (which
+gains them with defaults on old state load, no migration needed); it
+must NOT resurrect a mode-style exclusive dispatch.
+
+[concept-future]: ../concept.md#future-extensions
 
 m4l v1.0 still ships the inboil-style mode dispatch; this is the
 only intentional cross-target divergence as of 2026-05-15 and

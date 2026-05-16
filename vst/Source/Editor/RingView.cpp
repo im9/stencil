@@ -92,8 +92,13 @@ void RingView::paint(juce::Graphics& g)
     }
     const float rotation = RingLogic::phaseRotationDegrees(phase, len);
 
-    // 1) Faint guide circle (inboil .turing-sheet svg <circle> at opacity 0.15).
-    g.setColour(theme::fgAlpha(0.15f));
+    // 1) Guide circle. Inboil renders this at opacity 0.15, but the inboil
+    // reference is a desktop-class window with white-ish background and
+    // sits next to other generative content; in the standalone Stencil
+    // editor the same alpha looks washed out compared to the oedipa /
+    // site reference. Bump to 0.30 so the ring reads as an actual
+    // geometric construct rather than a near-invisible hint.
+    g.setColour(theme::fgAlpha(0.30f));
     g.drawEllipse(geo.cx - geo.radius, geo.cy - geo.radius,
                   geo.radius * 2.0f, geo.radius * 2.0f, 0.5f);
 
@@ -154,9 +159,15 @@ void RingView::paint(juce::Graphics& g)
             g.setColour(theme::olive);
             g.fillEllipse(circle);
         } else {
+            // Off bit: inboil uses olive @ 0.35 alpha for the stroke; that
+            // matches its embedded scene-graph context. Stencil's
+            // standalone editor follows the site / oedipa calibration —
+            // neutral fg at ~0.45 alpha so the outline reads at a glance
+            // against the bg cream without picking up an unwanted olive
+            // tint on inactive bits.
             g.setColour(theme::bg);
             g.fillEllipse(circle);
-            g.setColour(theme::oliveAlpha(0.35f));
+            g.setColour(theme::fgAlpha(0.45f));
             g.drawEllipse(circle, 1.5f);
         }
     }

@@ -37,9 +37,11 @@ On each step of the host transport, Stencil:
 1. Reads the current **shift register** as an integer of `length` bits.
 2. Maps the register's value to a normalized fraction `0..1` and then to a
    MIDI note within the user-set range `[lo, hi]`.
-3. With probability `density`, emits the note as a `noteOn`. On fail, the
-   step is silent but timing advances normally — the listener hears a hole
-   in the rhythm, not a beat shift.
+3. Reads the LSB ("read head"). If LSB=0 the step is silent (white ring
+   bit = no sound — visual contract). If LSB=1, emits the note with
+   probability `density`; on `density` fail, the step is silent but
+   timing advances normally — the listener hears a hole in the rhythm,
+   not a beat shift.
 4. Shifts the register one position: the bit that falls off becomes the
    write-bit candidate; with probability `(1 - lock)` it is flipped before
    being inserted at the head.
@@ -161,6 +163,18 @@ mode dispatch and will follow.
 
 [adr3]: adr/archive/003-m4l-ui-design.md
 
+- **Orthogonal note-attribute modulation** — the 2026-05-15 single
+  output dispatch collapses pitch / velocity / gate sources to
+  `pitch = mapToNote(reg, range)` / `velocity = outputVelocity` /
+  `gate = outputGate × stepDur`. The previous mode dispatch let the
+  bit pattern drive velocity (the old `velocity` mode's `(0.3 + frac ×
+  0.7) × outputVelocity`); that musical expressiveness is currently
+  unavailable. If demand resurfaces, add it as a per-attribute
+  modulation toggle / amount (e.g. "velocity follows reg" with a
+  depth control), NOT as a resurrected mode selector — the modes
+  failed because they treated note attributes as exclusive when they
+  are simultaneous. The same shape would extend to reg-driven gate
+  length, an LFO source, MIDI-CC modulation, etc.
 - **MPE output** — keep the note-emission abstraction loose enough that
   per-note pitch bend / pressure / timbre can be added without a rewrite.
 - **Preset / slot system** — oedipa-style 4-slot preset bank with
@@ -179,7 +193,7 @@ routing specifics, GUI-only state) may be added per target.
 | `length`          | int `2..32`                   | shift register length in bits                      |
 | `lock`            | float `0..1`                  | `1` = frozen loop, `0` = pure noise                |
 | `range`           | `[int 0..127, int 0..127]`    | output MIDI note range, `lo ≤ hi`                  |
-| `density`         | float `0..1`                  | active-step probability (default `1.0`)            |
+| `density`         | float `0..1`                  | gate probability for bit-1 steps; bit-0 always silent (default `1.0`) |
 | `subdivision`     | `8th \| 16th \| 32nd \| 8T \| 16T` | step unit; default `16th`                     |
 | `seed`            | int                           | RNG seed for reproducibility                       |
 | `triggerMode`     | `auto \| gate \| seed`        | input handling; default `auto`                     |

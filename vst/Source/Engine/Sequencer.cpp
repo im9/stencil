@@ -168,14 +168,17 @@ StepOutput Sequencer::processStep()
     const int note = mapToNote(f.num, f.den, params_.rangeLo, params_.rangeHi);
     const int velocity = params_.outputVelocity;
 
-    // Bit-tap active = LSB-fires OR density-draw-fires. Density draw is
-    // ALWAYS consumed so the rng thread stays in lockstep across the
-    // mode/density combinations.
+    // Active = LSB-1 AND density-gate-passes. Density is the probability
+    // that an on-bit fires; off-bits are always silent (visual contract:
+    // white circle = no sound). The earlier `||` semantic (density fills
+    // empties) violated that contract — see ADR 007 §Output 2026-05-16
+    // revision. Density draw is always consumed so the rng thread stays
+    // in lockstep with cross-target vector tests regardless of LSB.
     const bool bit0 = (register_ & 1u) == 1u;
     const uint32_t dDraw = nextU32(rng_);
     const uint64_t dThresh = probabilityThreshold(params_.density);
-    const bool fillFire = dDraw < dThresh;
-    const bool active = bit0 || fillFire;
+    const bool densityPass = dDraw < dThresh;
+    const bool active = bit0 && densityPass;
 
     // Capture pre-shift register so the editor renders "bit just emitted
     // under the playhead at moment of sounding" (ADR 007 §Visual playhead

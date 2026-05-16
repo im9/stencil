@@ -169,9 +169,11 @@ TEST_CASE("Sequencer single dispatch: pitch from reg/range, velocity = outputVel
     // `velocity = outputVelocity` (constant). The earlier per-mode
     // dispatch (note/gate/velocity) was removed because a MIDI note
     // event carries pitch + velocity + gate simultaneously, not as
-    // mutually exclusive branches.
+    // mutually exclusive branches. Uses seed=0 (length=8 vector
+    // confirms register=163=0xA3, LSB=1) so the bit-tap fires under
+    // the 2026-05-16 `bit0 && densityPass` semantic.
     SequencerParams p;
-    p.seed = 1;
+    p.seed = 0;
     p.length = 8;
     p.lock = 1.0;       // freeze register
     p.density = 1.0;    // always active so we can observe output
@@ -181,6 +183,7 @@ TEST_CASE("Sequencer single dispatch: pitch from reg/range, velocity = outputVel
 
     Sequencer seq(p);
     const RegisterBits reg = seq.getRegister();
+    REQUIRE((reg & 1u) == 1u);  // sanity: bit-tap fires
     const auto frac = stencil::engine::registerToFraction(reg, 8);
     const int expectedPitch = stencil::engine::mapToNote(frac.num, frac.den, 60, 72);
 
@@ -200,9 +203,10 @@ TEST_CASE("Sequencer single dispatch: rangeLo == rangeHi pins pitch (replaces ol
     // setting `rangeLo == rangeHi` — mapToNote always returns that
     // single value regardless of register state. Pins the design
     // claim made in ADR 007 §Output that gate mode is recoverable
-    // via range collapse.
+    // via range collapse. seed=0 → initial LSB=1 so the gated step
+    // fires under 2026-05-16 semantics.
     SequencerParams p;
-    p.seed = 1;
+    p.seed = 0;
     p.length = 8;
     p.lock = 1.0;
     p.density = 1.0;
@@ -226,7 +230,7 @@ TEST_CASE("Sequencer single dispatch: outputVelocity passes through verbatim",
     // Spot-check at three slider values to pin the verbatim mapping.
     for (int v : {1, 64, 127}) {
         SequencerParams p;
-        p.seed = 1;
+        p.seed = 0;
         p.length = 8;
         p.lock = 1.0;
         p.density = 1.0;
@@ -240,63 +244,82 @@ TEST_CASE("Sequencer single dispatch: outputVelocity passes through verbatim",
     }
 }
 
-// ─── Sequencer — bit-tap active semantic ──────────────────────────────────
+// ─── Sequencer — density as bit-tap gate (ADR 007 §Output, 2026-05-16) ────
 
-TEST_CASE("Sequencer bit-tap: density=0 + LSB=1 still fires",
-          "[sequencer][bit_tap]")
+TEST_CASE("Sequencer active: LSB=0 is always silent regardless of density",
+          "[sequencer][active]")
 {
-    // Initial register for seed=0 length=2 is 3 (0b11) per register_init
-    // vectors — LSB is 1. With density=0, pure-density semantics would
-    // be active=false; bit-tap semantics give active=true.
+    // Justification: ADR 007 §Output 2026-05-16 revision — the visual
+    // contract is "white bit = silent." density no longer fills empty
+    // bits; off-bits are always silent. Range density 0.0..1.0 must
+    // never produce active=true on a bit-0 step.
+    //
+    // Each density sample uses a fresh Sequencer: lock=1.0 prevents the
+    // flip draw, but the SHIFT still happens every processStep, so we
+    // can't reuse one Sequencer across density values and keep the LSB
+    // pinned at 0. Build, advance to LSB=0, sample one step.
+    auto silentOnBitZero = [](double density) -> bool {
+        SequencerParams p;
+        p.seed = 1;     // initial LSB ≠ 0 here, but cycle reaches LSB=0
+        p.length = 8;
+        p.lock = 1.0;
+        p.density = density;
+        p.rangeLo = 60;
+        p.rangeHi = 72;
+        Sequencer seq(p);
+        for (int i = 0; i < 32; ++i) {
+            if ((seq.getRegister() & 1u) == 0u) {
+                return !seq.processStep().active;
+            }
+            seq.processStep();
+        }
+        return false;  // test setup bug; should not happen for length=8
+    };
+    for (double d : {0.0, 0.5, 1.0}) {
+        CHECK(silentOnBitZero(d));
+    }
+}
+
+TEST_CASE("Sequencer active: LSB=1 fires deterministically when density=1.0",
+          "[sequencer][active]")
+{
+    // Justification: density acts as a "probability that bit-1 fires."
+    // density=1.0 means the gate is always open, so every bit-1 step
+    // emits. The current default (1.0) preserves "every on-bit plays"
+    // ergonomics.
     SequencerParams p;
     p.seed = 0;
     p.length = 2;
     p.lock = 1.0;
-    p.density = 0.0;  // density never fires alone
+    p.density = 1.0;
     p.rangeLo = 60;
     p.rangeHi = 72;
 
     Sequencer seq(p);
-    REQUIRE((seq.getRegister() & 1u) == 1u);  // sanity: LSB is 1 for this seed/length
+    REQUIRE((seq.getRegister() & 1u) == 1u);
     const StepOutput o = seq.processStep();
-    // density=0 but bit0=1 → bit-tap active
     CHECK(o.active);
 }
 
-TEST_CASE("Sequencer bit-tap: density=0 + LSB=0 → silent",
-          "[sequencer][bit_tap]")
+TEST_CASE("Sequencer active: LSB=1 + density=0 is silent",
+          "[sequencer][active]")
 {
-    // Use a register with LSB=0. We rely on shiftAndForce-like manipulation
-    // via reset+step pattern: with seed=0 length=2, register=3 has LSB=1, so
-    // we step once with lock=1 to get register>>1 = 1, then again to get 0…
-    // Simpler: use seed=1 length=8 (register has LSB=1) and step once with
-    // density=0+lock=1 to push the LSB out — then test the *next* step.
+    // Justification: density=0 fully closes the gate. The musical
+    // effect is "loop goes silent" (vs the old `||` semantic where
+    // density=0 left bit-tap firing intact). This is the breaking
+    // change from the 2026-05-15 spec.
     SequencerParams p;
-    p.seed = 1;
-    p.length = 8;
+    p.seed = 0;
+    p.length = 2;
     p.lock = 1.0;
-    p.density = 1.0;  // first step active so we can advance
+    p.density = 0.0;
     p.rangeLo = 60;
     p.rangeHi = 72;
 
     Sequencer seq(p);
-    // Find a step where, post-shift, the register's LSB is 0.
-    // Iterate a few steps until we observe LSB == 0 at processStep entry.
-    for (int i = 0; i < 32; ++i)
-    {
-        if ((seq.getRegister() & 1u) == 0u)
-        {
-            // Now flip density to 0 for this single observation.
-            auto p2 = seq.getParams();
-            p2.density = 0.0;
-            seq.setParams(p2);
-            const StepOutput o = seq.processStep();
-            CHECK_FALSE(o.active);
-            return;
-        }
-        seq.processStep();
-    }
-    FAIL("No register state with LSB=0 encountered in 32 steps; test setup bug");
+    REQUIRE((seq.getRegister() & 1u) == 1u);
+    const StepOutput o = seq.processStep();
+    CHECK_FALSE(o.active);
 }
 
 // ─── Sequencer — triggerMode branches ─────────────────────────────────────
@@ -347,7 +370,7 @@ TEST_CASE("Sequencer triggerMode=Gate, with held input: processes normally",
           "[sequencer][trigger_mode][gate]")
 {
     SequencerParams p;
-    p.seed = 1;
+    p.seed = 0;              // initial LSB=1 (vector) → bit-tap fires
     p.length = 8;
     p.lock = 1.0;            // pin register so bit-tap is predictable
     p.density = 1.0;

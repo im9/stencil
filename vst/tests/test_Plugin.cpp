@@ -224,12 +224,19 @@ TEST_CASE("processBlock with playing transport emits noteOn at boundaries",
           "[plugin][processBlock]")
 {
     // 120 BPM, 48 kHz, 24000-sample block = exactly one quarter note.
-    // 16th-note subdivision → 4 boundaries in the block. With
-    // density=1.0 lock=1.0, every step emits a noteOn (bit-tap active).
+    // 16th-note subdivision → 4 boundaries in the block. Pre-2026-05-16
+    // density semantics let density-fill fire empty bits; the new
+    // `bit0 && densityPass` rule means bit=0 steps are silent. Force
+    // an all-1s register with length=2, seed=0 (vector: register=0b11)
+    // and lock=1.0 so every step's bit-tap fires. density=1.0 keeps the
+    // gate open.
     StencilProcessor proc;
     auto& apvts = proc.getApvts();
 
-    // Force density=1.0 (already default), lock=1.0, mode=note.
+    apvts.getParameter(pid::length)->setValueNotifyingHost(
+        apvts.getParameter(pid::length)->convertTo0to1(2.0f));
+    apvts.getParameter(pid::seed)->setValueNotifyingHost(
+        apvts.getParameter(pid::seed)->convertTo0to1(0.0f));
     apvts.getParameter(pid::lock)->setValueNotifyingHost(1.0f);
     apvts.getParameter(pid::density)->setValueNotifyingHost(1.0f);
     apvts.getParameter(pid::outputGate)->setValueNotifyingHost(0.5f);
