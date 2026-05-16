@@ -123,7 +123,12 @@ const LIVE_PARAMS = [
   ['StencilTmRangeLo',     'LO',      'rangeLo',         1, 0,    127,        48],
   ['StencilTmRangeHi',     'HI',      'rangeHi',         1, 0,    127,        72],
   ['StencilTmDensity',     'DENS',    'density',         0, 0,    1,          1],
-  ['StencilTmSeed',        'SEED',    'seed',            1, 0,    2147483647, 42],
+  // SEED is parameter_type 0 (Float) despite being a conceptually-integer
+  // seed because M4L's Int parameter type is capped at 0..255 (256 values)
+  // regardless of mmax — Cycling74 docs recommend Float storage + Int
+  // unit style for integer ranges beyond 0..255. numdecimalplaces:0 +
+  // parameter_unitstyle:0 (Int) on the numbox keep the display integer.
+  ['StencilTmSeed',        'SEED',    'seed',            0, 0,    65535,      42],
   ['StencilTmOutputVelocity','VEL',   'outputVelocity',  1, 1,    127,        100],
   ['StencilTmOutputGate',  'GATE',    'outputGate',      0, 0,    1,          0.5],
 ]
@@ -207,13 +212,14 @@ test('every patchline source/destination id resolves to a known box', () => {
 
 // ---- ADR 003 §Stencil patcher ------------------------------------------
 
-test('devicewidth = 748 and openinpresentation = 1', () => {
-  // Stencil presents in 4 narrow fieldsets (Parameters / Register / Output /
-  // Trigger) packed to ~748 px total so the device strip doesn't overflow
-  // Live's standard view. Was 1000 px when the layout used 3 wider panels;
-  // narrowed 2026-05-16 when the per-fieldset packing landed.
+test('devicewidth = 592 and openinpresentation = 1', () => {
+  // 4 vertical sections separated by sub-pixel jsui dividers (no
+  // rectangular panel frames). Panel 2 holds just the register ring;
+  // RANGE slider sits in panel 3 (Output) alongside VEL / GATE /
+  // SUBDIV. Panel 1 (parameters) tightened to 12 px internal padding
+  // each side.
   const { parsed } = loadPatcher(MAXPAT)
-  assert.equal(parsed.patcher.devicewidth, 748)
+  assert.equal(parsed.patcher.devicewidth, 584)
   assert.equal(parsed.patcher.openinpresentation, 1)
 })
 
@@ -229,18 +235,19 @@ test('no in-strip product banner + no "im9" byline', () => {
   assert.ok(!comments.some((t) => /\bim9\b/.test(t)), 'no im9 byline')
 })
 
-test('has Parameters / Register / Output / Trigger group legends', () => {
-  // 4 fieldsets following the vst right-rail classification (vst's
-  // Output / Trigger / Reproducibility three-pack maps to Output +
-  // Trigger here since IN-CH/OUT-CH/SEED don't fit alongside RANGE in
-  // a strip-width budget). Catches a missing legend tab — an unlabeled
-  // border box would defeat the fieldset-with-corner-label idiom.
+test('no fieldset name labels (panels group by border only)', () => {
+  // The 4 panel borders group widgets visually; explicit text labels
+  // ("Parameters" / "Register" / "Output" / "Trigger") were dropped to
+  // reduce visual noise — the widget shortnames inside each panel make
+  // the grouping self-evident.
   const { boxes } = loadPatcher(MAXPAT)
   const comments = boxesByMaxclass(boxes, 'comment').map((b) => b.box.text)
-  assert.ok(comments.some((t) => /^Parameters$/.test(t)), 'Parameters legend')
-  assert.ok(comments.some((t) => /^Register$/.test(t)), 'Register legend')
-  assert.ok(comments.some((t) => /^Output$/.test(t)), 'Output legend')
-  assert.ok(comments.some((t) => /^Trigger$/.test(t)), 'Trigger legend')
+  for (const t of ['Parameters', 'Register', 'Output', 'Trigger']) {
+    assert.ok(
+      !comments.some((c) => c === t),
+      `comment "${t}" should not be present (fieldset names removed)`,
+    )
+  }
 })
 
 test('[bpatcher] wraps the ring sub-patcher', () => {
@@ -343,18 +350,24 @@ test('rangeLo / rangeHi live.dial widgets stay off-presentation', () => {
 })
 
 test('RND button rerolls the seed via [random] into live.numbox-seed', () => {
-  // The SEED parameter range is 0..2^31-1 -- a raw numeric entry is
-  // essentially meaningless to the user. The RND button bangs a
-  // [random 2147483647] into the seed numbox, generating a fresh
-  // loop pattern on click. The numbox's outlet then carries the new
-  // value through the existing prep-seed chain to the host.
+  // SEED parameter range is 0..65535 (16-bit) -- vst spec is 0..2^31-1
+  // but M4L's parameter_type:1 (Int) is capped at 0..255 (256 values)
+  // regardless of mmax, so the SEED numbox uses parameter_type:0 (Float)
+  // with numdecimalplaces:0 + parameter_unitstyle:0 (Int) to display as
+  // an integer while storing 16-bit values internally (Cycling74 doc
+  // recommendation). 65535 gives 64K unique loop patterns, plenty for
+  // musical use. The RND button bangs a [random 65536] into the seed
+  // numbox; the numbox's outlet carries the new value through the
+  // existing prep-seed chain to the host.
   const { boxes, lines } = loadPatcher(MAXPAT)
   const rndBtn = boxes.find((b) => b.box?.id === 'obj-rnd-btn')
   assert.ok(rndBtn, 'RND button missing')
-  assert.equal(rndBtn.box.maxclass, 'live.text')
-  assert.equal(rndBtn.box.text, 'RND')
-  const rndGen = boxes.find((b) => b.box?.text && /^random\s+2147483647/.test(b.box.text))
-  assert.ok(rndGen, '[random 2147483647] box missing')
+  // live.button (not live.text) — its rendering is a clean 18x18 dot
+  // that vertically centers on the adjacent live.numbox-seed without
+  // the font-baseline offset live.text introduces.
+  assert.equal(rndBtn.box.maxclass, 'live.button')
+  const rndGen = boxes.find((b) => b.box?.text && /^random\s+65536/.test(b.box.text))
+  assert.ok(rndGen, '[random 65536] box missing')
   const seedNum = boxes.find(
     (b) => b.box?.saved_attribute_attributes?.valueof?.parameter_longname === 'StencilTmSeed',
   )
