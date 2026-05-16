@@ -5,6 +5,11 @@ node_modules/
 # vst/ build output
 vst/build/
 
+# clangd cache (per-developer; .clangd config itself IS tracked so the
+# CompilationDatabase pointer ships with the repo)
+.cache/
+vst/.cache/
+
 # m4l engine/host TypeScript build output — regenerate with `pnpm -r build`
 m4l/engine/dist/
 m4l/host/dist/

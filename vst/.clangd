@@ -1,0 +1,18 @@
+# clangd configuration for the vst/ C++ tree.
+#
+# Tells clangd to read compile flags (include dirs, defines, std level)
+# from build/compile_commands.json — emitted by CMake because
+# CMAKE_EXPORT_COMPILE_COMMANDS is ON in CMakeLists.txt.
+#
+# Without this, clangd defaults to per-file heuristics and reports
+# spurious "file not found" diagnostics on headers like
+# "Editor/PluginEditor.h" that are reachable via the target's
+# target_include_directories(Source) — visible at build time but not to
+# the IDE.
+#
+# Re-run `make build` (or `make debug`) once after a fresh checkout so
+# the build dir + compile_commands.json exist; clangd picks it up
+# automatically on the next file open.
+
+CompileFlags:
+  CompilationDatabase: build

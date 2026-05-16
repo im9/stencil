@@ -44,6 +44,13 @@ void StencilEditor::paint(juce::Graphics& g)
                getWidth() - theme::railPad * 2, theme::headerHeight,
                juce::Justification::centredLeft);
 
+    g.setFont(theme::dataFont(theme::fsSm, false));
+    g.setColour(theme::fgAlpha(0.4f));
+    g.drawText("v" STENCIL_VERSION_STRING,
+               theme::railPad, 0,
+               getWidth() - theme::railPad * 2, theme::headerHeight,
+               juce::Justification::centredRight);
+
     g.setColour(theme::lzBorder);
     g.drawLine(0.0f, (float) theme::headerHeight,
                (float) getWidth(), (float) theme::headerHeight, 1.0f);

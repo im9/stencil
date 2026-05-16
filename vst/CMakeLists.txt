@@ -4,6 +4,12 @@ project(Stencil VERSION 0.1.0)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Emit build/compile_commands.json so clangd (and other LSP-driven IDEs)
+# can resolve includes like "Editor/PluginEditor.h" without manual
+# include-path config. Pairs with vst/.clangd which points clangd at
+# the build/ subdirectory.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 add_subdirectory(JUCE)
 add_subdirectory(clap-juce-extensions EXCLUDE_FROM_ALL)
 
@@ -78,6 +84,11 @@ target_compile_definitions(stencil_plugin_core PUBLIC
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
     JUCE_STANDALONE_APPLICATION=0
+    # Exposed to PluginEditor so the editor header can render the build
+    # version (mirrors the plist version reported to the host). Source of
+    # truth is project(Stencil VERSION ...) at the top of this file; the
+    # release skill bumps it as Step 0 before tagging.
+    STENCIL_VERSION_STRING="${PROJECT_VERSION}"
 )
 
 # --- Plugin (AU / VST3 / Standalone wrappers) ---------------------------------
@@ -136,6 +147,7 @@ target_compile_definitions(Stencil PRIVATE
     JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
+    STENCIL_VERSION_STRING="${PROJECT_VERSION}"
 )
 
 # --- CLAP wrapper (ADR 007 Phase 4) -------------------------------------------
