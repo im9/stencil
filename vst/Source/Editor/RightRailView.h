@@ -60,10 +60,14 @@ private:
     std::unique_ptr<SliderAttachment> lengthAtt_, lockAtt_, densityAtt_;
 
     // ── Output ────────────────────────────────────────────────────
-    juce::Slider rangeLoSlider_, rangeHiSlider_;
+    // rangeSlider_ is a two-thumb slider (juce::Slider::TwoValueHorizontal)
+    // bound to rangeLo / rangeHi APVTS params via manual listener wiring.
+    // SliderAttachment binds one param to one slider value; for the
+    // two-thumb form we sync APVTS → slider in the PillSync timer poll
+    // and slider → APVTS via onValueChange.
+    juce::Slider rangeSlider_;
     juce::Slider outputVelocitySlider_, outputGateSlider_, outputChannelSlider_;
     juce::ComboBox subdivisionCombo_;
-    std::unique_ptr<SliderAttachment> rangeLoAtt_, rangeHiAtt_;
     std::unique_ptr<SliderAttachment> outputVelocityAtt_, outputGateAtt_, outputChannelAtt_;
     std::unique_ptr<ComboBoxAttachment> subdivisionAtt_;
 
@@ -94,6 +98,12 @@ private:
     // and preset recall sync without per-pill APVTS::Listener wiring.
     void writeChoice(const char* paramId, int idx);
     void refreshPills();
+    // Two-thumb range slider sync. `pushRangeSliderToApvts` is the
+    // onValueChange callback (slider → APVTS); `pullRangeSliderFromApvts`
+    // runs in the PillSync timer (APVTS → slider) so external automation
+    // / preset recall move the thumbs.
+    void pushRangeSliderToApvts();
+    void pullRangeSliderFromApvts();
 
     // Frame paint helper called from Content::paint. Const-qualified —
     // it only reads APVTS atomically and writes to the Graphics ctx.

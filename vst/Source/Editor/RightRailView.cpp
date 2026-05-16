@@ -65,6 +65,7 @@ public:
     void timerCallback() override
     {
         view_.refreshPills();
+        view_.pullRangeSliderFromApvts();
         view_.content_.repaint();
     }
 private:
@@ -89,16 +90,27 @@ RightRailView::RightRailView(plugin::StencilProcessor& p)
         content_.addAndMakeVisible(*s);
 
     // ── Output ────────────────────────────────────────────────────
-    for (auto* s : { &rangeLoSlider_, &rangeHiSlider_,
+    for (auto* s : { &rangeSlider_,
                      &outputVelocitySlider_, &outputGateSlider_, &outputChannelSlider_ })
         styleSlider(*s);
 
-    rangeLoAtt_       = std::make_unique<SliderAttachment>(processor_.getApvts(), plugin::pid::rangeLo,        rangeLoSlider_);
-    rangeHiAtt_       = std::make_unique<SliderAttachment>(processor_.getApvts(), plugin::pid::rangeHi,        rangeHiSlider_);
+    // Range as a two-thumb slider; concept.md models `range` as a
+    // tuple, so the single widget is the more faithful UI. APVTS keeps
+    // rangeLo / rangeHi as separate IDs (host automation needs them
+    // distinct), and we sync them to the slider's min/max thumbs via
+    // listener glue (no SliderAttachment for the two-thumb form).
+    rangeSlider_.setSliderStyle(juce::Slider::TwoValueHorizontal);
+    rangeSlider_.setRange(0.0, 127.0, 1.0);
+    rangeSlider_.setMinAndMaxValues(
+        static_cast<double>(*processor_.getApvts().getRawParameterValue(plugin::pid::rangeLo)),
+        static_cast<double>(*processor_.getApvts().getRawParameterValue(plugin::pid::rangeHi)),
+        juce::dontSendNotification);
+    rangeSlider_.onValueChange = [this] { pushRangeSliderToApvts(); };
+
     outputVelocityAtt_= std::make_unique<SliderAttachment>(processor_.getApvts(), plugin::pid::outputVelocity, outputVelocitySlider_);
     outputGateAtt_    = std::make_unique<SliderAttachment>(processor_.getApvts(), plugin::pid::outputGate,     outputGateSlider_);
     outputChannelAtt_ = std::make_unique<SliderAttachment>(processor_.getApvts(), plugin::pid::outputChannel,  outputChannelSlider_);
-    for (auto* s : { &rangeLoSlider_, &rangeHiSlider_,
+    for (auto* s : { &rangeSlider_,
                      &outputVelocitySlider_, &outputGateSlider_, &outputChannelSlider_ })
         content_.addAndMakeVisible(*s);
 
@@ -165,6 +177,34 @@ void RightRailView::refreshPills()
     const int trigIdx = (int) *processor_.getApvts().getRawParameterValue(plugin::pid::triggerMode);
     for (int i = 0; i < (int) triggerPills_.size(); ++i)
         triggerPills_[(std::size_t) i].setToggleState(i == trigIdx, juce::dontSendNotification);
+}
+
+void RightRailView::pushRangeSliderToApvts()
+{
+    // Drag side → APVTS. Always push both params: the slider's
+    // TwoValueHorizontal style intrinsically keeps lo ≤ hi (thumbs
+    // can't cross), so we don't need to clamp here. The
+    // PluginProcessor APVTS listener still clamps for the host-
+    // automation path, which can't go through this code.
+    const float lo = static_cast<float>(rangeSlider_.getMinValue());
+    const float hi = static_cast<float>(rangeSlider_.getMaxValue());
+    auto& apvts = processor_.getApvts();
+    if (auto* p = apvts.getParameter(plugin::pid::rangeLo))
+        p->setValueNotifyingHost(p->convertTo0to1(lo));
+    if (auto* p = apvts.getParameter(plugin::pid::rangeHi))
+        p->setValueNotifyingHost(p->convertTo0to1(hi));
+}
+
+void RightRailView::pullRangeSliderFromApvts()
+{
+    // APVTS → slider: host automation, preset recall, undo, etc.
+    // Skip when values already match so we don't bounce the
+    // onValueChange callback back through the push path.
+    const auto& apvts = processor_.getApvts();
+    const double lo = static_cast<double>(*apvts.getRawParameterValue(plugin::pid::rangeLo));
+    const double hi = static_cast<double>(*apvts.getRawParameterValue(plugin::pid::rangeHi));
+    if (rangeSlider_.getMinValue() != lo || rangeSlider_.getMaxValue() != hi)
+        rangeSlider_.setMinAndMaxValues(lo, hi, juce::dontSendNotification);
 }
 
 // ── Paint helpers ────────────────────────────────────────────────
@@ -271,29 +311,26 @@ void RightRailView::paintContent(juce::Graphics& g) const
         drawRowValue(g, valX, rowY(2, fy), kValueColW, rh, fmtFloat2(a, plugin::pid::density));
     }
 
-    // 2. Output
-    // Row 0 is a "RANGE" sub-heading; rows 1-2 are the LO / HI sliders
-    // sharing the same label column as VEL / GATE / SUBDIV below.
+    // 2. Output (RANGE two-thumb / VEL / GATE / SUBDIV)
     {
         const int fy = outputFrameY_;
         drawFieldsetFrame(g, { frameX, fy, frameW, outputHeight_ }, "Output");
         const int valX = innerXv + innerW - kValueColW;
 
-        g.setColour(theme::fgAlpha(0.45f));
-        g.setFont(theme::dataFont(theme::fsSm, true));
-        g.drawText("RANGE", innerXv, rowY(0, fy), innerW, rh,
-                   juce::Justification::centredLeft);
-
-        drawRowLabel(g, innerXv, rowY(1, fy), rh, "LO");
-        drawRowLabel(g, innerXv, rowY(2, fy), rh, "HI");
-        drawRowLabel(g, innerXv, rowY(3, fy), rh, "VEL");
-        drawRowLabel(g, innerXv, rowY(4, fy), rh, "GATE");
-        drawRowLabel(g, innerXv, rowY(5, fy), rh, "SUBDIV");
-        drawRowValue(g, valX, rowY(1, fy), kValueColW, rh, fmtInt(a, plugin::pid::rangeLo));
-        drawRowValue(g, valX, rowY(2, fy), kValueColW, rh, fmtInt(a, plugin::pid::rangeHi));
-        drawRowValue(g, valX, rowY(3, fy), kValueColW, rh, fmtInt(a, plugin::pid::outputVelocity));
-        drawRowValue(g, valX, rowY(4, fy), kValueColW, rh, fmtFloat2(a, plugin::pid::outputGate));
-        // Row 5 (SUBDIV) — combo box renders its own selected item; no
+        drawRowLabel(g, innerXv, rowY(0, fy), rh, "RANGE");
+        drawRowLabel(g, innerXv, rowY(1, fy), rh, "VEL");
+        drawRowLabel(g, innerXv, rowY(2, fy), rh, "GATE");
+        drawRowLabel(g, innerXv, rowY(3, fy), rh, "SUBDIV");
+        // RANGE value shows both thumbs as "lo..hi" in a single cell;
+        // the slider itself is a two-thumb widget so a single cell is
+        // the natural fit.
+        const int lo = static_cast<int>(*a.getRawParameterValue(plugin::pid::rangeLo));
+        const int hi = static_cast<int>(*a.getRawParameterValue(plugin::pid::rangeHi));
+        drawRowValue(g, valX, rowY(0, fy), kValueColW, rh,
+                     juce::String(lo) + ".." + juce::String(hi));
+        drawRowValue(g, valX, rowY(1, fy), kValueColW, rh, fmtInt(a, plugin::pid::outputVelocity));
+        drawRowValue(g, valX, rowY(2, fy), kValueColW, rh, fmtFloat2(a, plugin::pid::outputGate));
+        // Row 3 (SUBDIV) — combo box renders its own selected item; no
         // separate value column needed.
     }
 
@@ -327,10 +364,10 @@ void RightRailView::resized()
     const int gap = theme::rowGap;
     const int legendH = static_cast<int>(theme::fsSm) + 4;
 
-    // Per-fieldset heights. Output has 6 rows total: RANGE sub-heading
-    // plus LO, HI, VEL, GATE, SUBDIV.
+    // Per-fieldset heights. Output has 4 rows total: RANGE (two-thumb),
+    // VEL, GATE, SUBDIV.
     paramsHeight_  = legendH + rh * 3 + gap * 2 + theme::groupPadY * 2;
-    outputHeight_  = legendH + rh * 6 + gap * 5 + theme::groupPadY * 2;
+    outputHeight_  = legendH + rh * 4 + gap * 3 + theme::groupPadY * 2;
     triggerHeight_ = legendH + rh * 2 + gap * 1 + theme::groupPadY * 2;
     reproHeight_   = legendH + rh * 1 + theme::groupPadY * 2;
 
@@ -355,17 +392,15 @@ void RightRailView::resized()
         y += paramsHeight_ + theme::groupGap;
     }
 
-    // ── Output (RANGE sub-heading, LO, HI, VEL, GATE, SUBDIV) ─────
+    // ── Output (RANGE two-thumb, VEL, GATE, SUBDIV) ───────────────
     {
         outputFrameY_ = y;
-        // Row 0 is the "RANGE" sub-heading (paint-only, no slider).
-        rangeLoSlider_       .setBounds(sliderX, rowY(1, y), sliderW, rh);
-        rangeHiSlider_       .setBounds(sliderX, rowY(2, y), sliderW, rh);
-        outputVelocitySlider_.setBounds(sliderX, rowY(3, y), sliderW, rh);
-        outputGateSlider_    .setBounds(sliderX, rowY(4, y), sliderW, rh);
+        rangeSlider_         .setBounds(sliderX, rowY(0, y), sliderW, rh);
+        outputVelocitySlider_.setBounds(sliderX, rowY(1, y), sliderW, rh);
+        outputGateSlider_    .setBounds(sliderX, rowY(2, y), sliderW, rh);
         // SUBDIV row uses a combo, so no separate value column — combo
         // takes the slider+value column width as its body.
-        subdivisionCombo_    .setBounds(sliderX, rowY(5, y), sliderW + kValueColW + kColGap, rh);
+        subdivisionCombo_    .setBounds(sliderX, rowY(3, y), sliderW + kValueColW + kColGap, rh);
         y += outputHeight_ + theme::groupGap;
     }
 
