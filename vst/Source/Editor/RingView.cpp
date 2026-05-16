@@ -97,13 +97,15 @@ void RingView::paint(juce::Graphics& g)
     g.drawEllipse(geo.cx - geo.radius, geo.cy - geo.radius,
                   geo.radius * 2.0f, geo.radius * 2.0f, 0.5f);
 
-    // 2) Read-head pointer (small triangle pointing into the ring from above
+    // 2) Read-head pointer (small triangle pointing INTO the ring from above
     // the top bit). Sits in screen space (un-rotated) so it always reads as
-    // "the head" — the ring rotates underneath it.
+    // "the head" — the ring rotates underneath it. Tip is closer to the ring
+    // than the base so the triangle visually points down at the bit it
+    // marks.
     {
         juce::Path tri;
-        const float tipY = geo.cy - geo.radius - geo.bitRadius - 10.0f;
-        const float baseY = geo.cy - geo.radius - geo.bitRadius - 5.0f;
+        const float tipY  = geo.cy - geo.radius - geo.bitRadius - 5.0f;
+        const float baseY = geo.cy - geo.radius - geo.bitRadius - 10.0f;
         tri.addTriangle(geo.cx,         tipY,
                         geo.cx - 3.0f,  baseY,
                         geo.cx + 3.0f,  baseY);
