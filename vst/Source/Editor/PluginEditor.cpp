@@ -20,11 +20,17 @@ StencilEditor::StencilEditor(plugin::StencilProcessor& p)
 
     setResizable(true, true);
     setResizeLimits(640, 360, 1800, 1200);
-    // 820 × 540 is the inboil TuringSheet dialog footprint scaled to
-    // the right-rail's 280 px width budget. The body becomes:
-    //   ring 540 px wide × 364 px tall, rail 280 × 364, header 820 × 40,
-    //   history 820 × 136 — matches the ADR 007 §Layout sketch.
-    setSize(820, 540);
+    // 820 × 600. The body becomes ring 540 × 424 + rail 280 × 424,
+    // header 820 × 40, history 820 × 136. Rail needs ~392 px to fit
+    // Parameters / Output / Trigger / Reproducibility without a
+    // scroll bar at the default size (post 2026-05-15 mode removal +
+    // 2026-05-16 RANGE two-thumb consolidation); 540 was sized for
+    // the original 5-fieldset stack with separate LO / HI rows and
+    // a Mode fieldset, which clipped Reproducibility off-screen on
+    // first open. The scrollbar still appears when the user
+    // intentionally shrinks below this size, but the default no
+    // longer requires scrolling.
+    setSize(820, 600);
 }
 
 void StencilEditor::paint(juce::Graphics& g)
