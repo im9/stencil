@@ -1,19 +1,25 @@
-// TM register-ring jsui pure logic — ADR 003 §TM register ring.
+// TM register-ring jsui pure logic.
 //
 // Pure data + math, no Max APIs. Runs in Node for tests. Mirrored (by
 // hand, ASCII-only) into registerRing.jsui.js for Max's [jsui] consumer.
 // A drift test (registerRing.mirror.test.ts) asserts the named constants
-// below appear in the renderer text. Function bodies are not auto-checked
-// — keep them in sync by discipline; surface is small (~5 functions).
+// below appear in the renderer text.
+//
+// Static-snapshot model: the bridge publishes a fresh pre-shift register
+// snapshot per step (bit 0 = the LSB the listener just heard). The
+// renderer redraws on each new snapshot but does NOT animate the
+// shift -- m4l's cramped 312x136 strip reads poorly under the
+// anticipation ease that vst's RingView runs at 60Hz, so we snap. CCW
+// bit arrangement is preserved (bit 0 top, bit 1 upper-left, ...) so
+// the visual still tells the user "bit 1 is what plays next."
 
 export type Bit = 0 | 1;
 
 export const MIN_LENGTH = 2;
 export const MAX_LENGTH = 32;
 
-// Caps on the per-bit dot radius: anything larger reads as a button rather
-// than a register bit. Anything smaller than 1 is degenerate. Both are
-// musical/visual choices — adjust together with the renderer.
+// Caps on the per-bit dot radius: anything larger reads as a button
+// rather than a register bit. Anything smaller than 1 is degenerate.
 export const MAX_BIT_RADIUS = 14;
 
 // Pixel gap subtracted from the arc-half spacing when sizing dots, so
@@ -24,18 +30,15 @@ export const BIT_GAP = 2;
 export const CANVAS_MARGIN = 4;
 
 // Gap between the outer edge of the bit dot and the tip of the fixed
-// pointer triangle drawn at the top of the ring (revolver model).
+// pointer triangle drawn at the top of the ring.
 export const POINTER_GAP = 4;
 
-// Pointer triangle base half-width and height in px. Mirrors inboil
-// TuringSheet.svelte polygon "points={cx},{cy-R-bitR-10} {cx-3},{cy-R-bitR-5} {cx+3},{cy-R-bitR-5}"
-// scaled to our ring (10/5 → POINTER_HEIGHT/POINTER_GAP, 3 → POINTER_HALF_WIDTH).
+// Pointer triangle base half-width and height in px.
 export const POINTER_HALF_WIDTH = 3;
 export const POINTER_HEIGHT = 6;
 
 export interface RingModel {
   bits: Bit[];
-  readHead: number;
   hovered: number;
 }
 
@@ -55,7 +58,7 @@ export interface Point {
 export function createModel(length: number): RingModel {
   const len = clampLength(length);
   const bits: Bit[] = new Array(len).fill(0) as Bit[];
-  return { bits, readHead: 0, hovered: -1 };
+  return { bits, hovered: -1 };
 }
 
 export function computeGeometry(
@@ -70,59 +73,45 @@ export function computeGeometry(
     0,
     Math.min(canvasWidth, canvasHeight) / 2 - CANVAS_MARGIN,
   );
-  // Arc-half spacing between adjacent bits at radius=maxRadius. Floor at
-  // length=4 so very short registers (2/3) don't get oversized dots.
-  const arcHalf = (Math.PI * maxRadius) / Math.max(len, 4);
+  // Chord-based bit sizing: adjacent bit centers sit `2*r*sin(pi/N)`
+  // apart on the placement circle, NOT `2*pi*r/N` (arc length). The
+  // earlier arc-length formula over-estimated spacing at small/medium
+  // N and produced visually overlapping bits (worst at N around
+  // 10..14 where chord/arc diverge most). Solve the constraint
+  //   2*placementR*sin(pi/N) - 2*bitR >= BIT_GAP
+  // with placementR = maxR - bitR:
+  //   bitR <= (maxR*sin(pi/N) - BIT_GAP/2) / (1 + sin(pi/N))
+  const sinHalfAngle = Math.sin(Math.PI / Math.max(len, 4));
   const bitRadius = Math.max(
     1,
-    Math.min(MAX_BIT_RADIUS, arcHalf - BIT_GAP),
+    Math.min(
+      MAX_BIT_RADIUS,
+      (maxRadius * sinHalfAngle - BIT_GAP / 2) / (1 + sinHalfAngle),
+    ),
   );
-  // Pull the placement radius in by bitRadius so dots sit inside the
-  // canvas, not centered on its edge.
   const radius = Math.max(0, maxRadius - bitRadius);
   return { cx, cy, radius, bitRadius, length: len };
 }
 
-export function bitPosition(index: number, geometry: RingGeometry): Point {
-  // Index 0 at top, advancing clockwise (screen y-down). Matches inboil
-  // TuringSheet so the visual carries over unmodified.
-  const angle = (index / geometry.length) * Math.PI * 2 - Math.PI / 2;
+// Logical bit index -> on-screen angle in radians. CCW arrangement:
+//   idx=0           -> -pi/2 (top, the playhead position)
+//   idx=1           -> -pi/2 - 2pi/length (upper-LEFT)
+//   idx=length-1    -> upper-RIGHT (one stepAngle CW from bit 0)
+// This tells the user visually that bit 1 is the bit about to be played
+// next (it's adjacent CW to bit 0 in the engine's right-shift order).
+export function bitAngle(idx: number, length: number): number {
+  const len = clampLength(length);
+  return -Math.PI / 2 - (idx / len) * Math.PI * 2;
+}
+
+export function bitPosition(idx: number, geometry: RingGeometry): Point {
+  const angle = bitAngle(idx, geometry.length);
   return {
     x: geometry.cx + geometry.radius * Math.cos(angle),
     y: geometry.cy + geometry.radius * Math.sin(angle),
   };
 }
 
-// Revolver model (ADR 003 §TM register ring, amended 2026-05-09): the
-// bit ring rotates CW by `cumulativeSteps * (2π/length)` while a fixed
-// pointer marks the read position at top. CW matches inboil
-// TuringSheet's positive `rotationDeg = cumulativeSteps * stepAngle`
-// applied via SVG `transform: rotate()` (positive deg = CW in screen
-// coordinates). Engine shift direction (`register[i] = register[i-1]`,
-// indices UP) is independent of visual rotation direction; CW is the
-// musically natural choice (clock-hand convention = time advancing).
-// cumulativeSteps is the host's monotonic position counter
-// (host.position), passed through unchanged via the bridge's
-// `ringHead` outlet.
-export function bitPositionRotated(
-  index: number,
-  geometry: RingGeometry,
-  cumulativeSteps: number,
-): Point {
-  const stepAngle = (Math.PI * 2) / geometry.length;
-  const angle =
-    (index / geometry.length) * Math.PI * 2 -
-    Math.PI / 2 +
-    cumulativeSteps * stepAngle;
-  return {
-    x: geometry.cx + geometry.radius * Math.cos(angle),
-    y: geometry.cy + geometry.radius * Math.sin(angle),
-  };
-}
-
-// Tip of the fixed pointer triangle at the top of the ring. The triangle
-// itself is drawn by the renderer between (tip) and the two base points
-// at (cx ± POINTER_HALF_WIDTH, tip.y + POINTER_HEIGHT).
 export function pointerTip(geometry: RingGeometry): Point {
   return {
     x: geometry.cx,
@@ -135,36 +124,11 @@ export function pointerTip(geometry: RingGeometry): Point {
   };
 }
 
-// Logical bit index whose dot currently sits under the fixed top pointer
-// after CW rotation by `cumulativeSteps`. With CW rotation, the bit at
-// the top has index `(length - cumulativeSteps) mod length` — each step
-// pulls the next CCW-neighbour into the pointer slot.
-export function readingIndexAt(
-  cumulativeSteps: number,
-  length: number,
-): number {
-  if (length <= 0) return -1;
-  const k = Math.floor(cumulativeSteps);
-  return (((length - k) % length) + length) % length;
-}
-
-export function hitTestRotated(
+export function hitTest(
   x: number,
   y: number,
   geometry: RingGeometry,
-  cumulativeSteps: number,
 ): number {
-  const r2 = geometry.bitRadius * geometry.bitRadius;
-  for (let i = 0; i < geometry.length; i++) {
-    const p = bitPositionRotated(i, geometry, cumulativeSteps);
-    const dx = x - p.x;
-    const dy = y - p.y;
-    if (dx * dx + dy * dy <= r2) return i;
-  }
-  return -1;
-}
-
-export function hitTest(x: number, y: number, geometry: RingGeometry): number {
   const r2 = geometry.bitRadius * geometry.bitRadius;
   for (let i = 0; i < geometry.length; i++) {
     const p = bitPosition(i, geometry);
@@ -188,12 +152,6 @@ export function toggleBitAt(model: RingModel, index: number): RingModel {
   return { ...model, bits };
 }
 
-export function advanceReadHead(model: RingModel): RingModel {
-  if (model.bits.length === 0) return model;
-  const next = (model.readHead + 1) % model.bits.length;
-  return { ...model, readHead: next };
-}
-
 export function setRegister(
   model: RingModel,
   bits: ReadonlyArray<number>,
@@ -202,18 +160,7 @@ export function setRegister(
   for (let i = 0; i < bits.length; i++) {
     sanitized.push((bits[i] & 1) as Bit);
   }
-  const readHead =
-    sanitized.length > 0
-      ? Math.min(model.readHead, sanitized.length - 1)
-      : 0;
-  return { ...model, bits: sanitized, readHead };
-}
-
-export function setReadHead(model: RingModel, position: number): RingModel {
-  if (!Number.isFinite(position) || model.bits.length === 0) return model;
-  const len = model.bits.length;
-  const wrapped = ((Math.floor(position) % len) + len) % len;
-  return { ...model, readHead: wrapped };
+  return { ...model, bits: sanitized };
 }
 
 export function setHovered(model: RingModel, index: number): RingModel {

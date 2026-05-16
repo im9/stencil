@@ -81,7 +81,10 @@ test("construction — register bit count matches custom length", () => {
 
 // --- step path -----------------------------------------------------------
 
-test("step density=1 — immediate noteOn dispatched via emitNote", () => {
+test("step density=1 + bit0=1 — immediate noteOn dispatched via emitNote", () => {
+  // Under bit-tap (vst spec 2026-05-16): bit0=1 + density=1 fires. Force
+  // bit0 via setBit so the test doesn't depend on the seed-1 register
+  // happening to have an on-bit at the LSB.
   const { bridge, rec } = makeBridge({
     seed: 1,
     length: 8,
@@ -91,6 +94,7 @@ test("step density=1 — immediate noteOn dispatched via emitNote", () => {
     outputChannel: 1,
     outputGate: 0.5,
   });
+  bridge.setBit(0, 1);
   rec.notes.length = 0; // ignore construction-time emits (none expected, but defensive)
   bridge.step(0);
   // First emitted note is the noteOn (velocity > 0)
@@ -109,6 +113,7 @@ test("step — first step has no msPerStep estimate, delayed noteOff fires immed
     lock: 1.0,
     outputGate: 0.5,
   });
+  bridge.setBit(0, 1); // bit-tap gate needs LSB=1 to fire
   rec.notes.length = 0;
   rec.scheduled.length = 0;
   bridge.step(0);
@@ -124,12 +129,17 @@ test("step — first step has no msPerStep estimate, delayed noteOff fires immed
 test("step — second step uses msPerStep estimate to schedule noteOff", () => {
   // Step at t=0, then step at t=125ms (typical 16th @ 120 BPM). Bridge
   // estimates msPerStep≈125 from the dt and uses it to schedule noteOff.
+  // Force lock=1 with bit0=1 + length=2 so the register is 0b11 (both bits
+  // set) and every step under the perfect loop keeps bit0=1.
   const { bridge, rec } = makeBridge({
     seed: 1,
+    length: 2,
     density: 1.0,
     lock: 1.0,
     outputGate: 0.5,
   });
+  bridge.setBit(0, 1);
+  bridge.setBit(1, 1);
   rec.nowValue = 0;
   bridge.step(0);
   rec.nowValue = 125;
@@ -142,13 +152,18 @@ test("step — second step uses msPerStep estimate to schedule noteOff", () => {
 });
 
 test("step — msPerStep estimate updates via EMA across multiple steps", () => {
-  // Three steps spaced 100ms apart → msPerStep ≈ 100
+  // Three steps spaced 100ms apart → msPerStep ≈ 100. length=2 + all-ones
+  // register keeps bit0=1 across the perfect loop so every step fires
+  // under the bit-tap gate.
   const { bridge, rec } = makeBridge({
     seed: 1,
+    length: 2,
     density: 1.0,
     lock: 1.0,
     outputGate: 1.0, // simplifies math: noteOff schedule == msPerStep
   });
+  bridge.setBit(0, 1);
+  bridge.setBit(1, 1);
   rec.nowValue = 0;
   bridge.step(0);
   rec.nowValue = 100;
@@ -163,64 +178,38 @@ test("step — msPerStep estimate updates via EMA across multiple steps", () => 
   assert.equal(sched[0].ms, 100);
 });
 
-test("step — emits ringHead + triggerFlash, NOT register (Mode A frozen pattern)", () => {
-  // ADR 003 §TM register ring (Mode A): the ring visualization shows the
-  // initial register snapshot rotating; bits[] in jsui must NOT update on
-  // every step or the rotation animation jumps. Bridge therefore omits
-  // `register` from the per-step outlet set; lifecycle events (constructor,
-  // transportStart, setBit, length/seed change) re-emit it.
+test("step — emits register snapshot + ringHead per step", () => {
+  // The bridge publishes the pre-shift register snapshot every step so
+  // the jsui ring redraws with the bit currently sounding (bit 0).
+  // ringHead is a separate counter still emitted for any patcher-side
+  // consumer; the renderer itself ignores it under the static-snapshot
+  // model. stepBeat / triggerFlash were dropped when the anticipation
+  // animation was removed.
   const { bridge, rec } = makeBridge({ seed: 1, length: 8 });
-  // clear construction-time emits
   rec.outlets.length = 0;
   bridge.step(0);
   const regs = outletsByName(rec, "register");
   const pos = outletsByName(rec, "ringHead");
-  const flash = outletsByName(rec, "triggerFlash");
-  assert.equal(regs.length, 0, "step must NOT emit register (Mode A)");
+  assert.equal(regs.length, 1, "step must emit register snapshot");
+  assert.equal(regs[0].args.length, 8, "snapshot has length-many bits");
   assert.equal(pos.length, 1, "step must emit ringHead");
   assert.deepEqual(pos[0].args, [1], "position incremented to 1");
-  assert.equal(flash.length, 1, "step must emit triggerFlash");
-  assert.ok(
-    flash[0].args[0] === 0 || flash[0].args[0] === 1,
-    "triggerFlash arg is 0 or 1",
-  );
+  // No stepBeat / triggerFlash on the wire any more.
+  assert.equal(outletsByName(rec, "stepBeat").length, 0);
+  assert.equal(outletsByName(rec, "triggerFlash").length, 0);
 });
 
-test("step active=true — triggerFlash 1 (audible step → visual flash)", () => {
-  // ADR 003 §Active-step flash: the flash overlay fires precisely when the
-  // host emits a noteOn, so visual matches audible. With density=1, lock=1,
-  // and bit-tap on, the first step is guaranteed active.
-  const { bridge, rec } = makeBridge({
-    seed: 1,
-    length: 8,
-    density: 1.0,
-    lock: 1.0,
-  });
+test("step — register snapshot is pre-shift (LSB = bit currently sounding)", () => {
+  // The snapshot's bit 0 must equal the LSB of the register BEFORE the
+  // step's shiftAndFlip — that's the bit whose audible state the user is
+  // hearing for this step. After the shift the live register's bit 0 is
+  // the next bit; the snapshot retains the just-played one.
+  const { bridge, rec } = makeBridge({ seed: 1, length: 8 });
+  bridge.setBit(0, 1);
   rec.outlets.length = 0;
-  rec.notes.length = 0;
   bridge.step(0);
-  const flash = outletsByName(rec, "triggerFlash");
-  assert.equal(flash.length, 1);
-  assert.equal(flash[0].args[0], 1, "active step → triggerFlash 1");
-});
-
-test("step active=false — triggerFlash 0 (silent step → clear flash)", () => {
-  // ADR 003 §Active-step flash: the renderer relies on a deterministic
-  // 0-message to clear in-flight flash state, rather than a timeout. Force
-  // bit0=0 + density=0 so the step is silent under bit-tap.
-  const { bridge, rec } = makeBridge({
-    seed: 1,
-    length: 8,
-    density: 0.0,
-    lock: 1.0,
-  });
-  bridge.setBit(0, 0); // ensure bit0 = 0
-  rec.outlets.length = 0;
-  rec.notes.length = 0;
-  bridge.step(0);
-  const flash = outletsByName(rec, "triggerFlash");
-  assert.equal(flash.length, 1);
-  assert.equal(flash[0].args[0], 0, "silent step → triggerFlash 0");
+  const regs = outletsByName(rec, "register");
+  assert.equal(regs[0].args[0], 1, "snapshot LSB matches what just played");
 });
 
 // --- setBit --------------------------------------------------------------
@@ -284,32 +273,10 @@ test("setParam invalid value — silently ignored", () => {
   bridge.setParam("length", "not a number");
   bridge.setParam("length", NaN);
   bridge.setParam("triggerMode", "bogus-mode");
-  bridge.setParam("mode", "bogus-mode"); // ADR 003 §TM output mode validation
-  assert.equal(rec.outlets.length, 0);
-});
-
-test("setParam mode — accepts 'note' / 'gate' / 'velocity'", () => {
-  // ADR 003 §TM output mode: enum is exactly {note, gate, velocity}; any
-  // other string value is rejected at the bridge boundary.
-  const { bridge, rec } = makeBridge({ seed: 1 });
-  rec.outlets.length = 0;
+  // `mode` param was removed (vst spec 2026-05-15) — bridge must treat
+  // it as an unknown key and silently ignore.
   bridge.setParam("mode", "note");
-  bridge.setParam("mode", "gate");
-  bridge.setParam("mode", "velocity");
-  // No outlet emit expected (mode change doesn't reset register), but the
-  // calls must not throw and must not be the silent-no-op path. Probe
-  // effect via a step: in 'gate' mode the next active step's pitch is the
-  // range midpoint, regardless of regValue.
-  bridge.setParam("mode", "gate");
-  rec.notes.length = 0;
-  // Force bit0 = 1 so the step is guaranteed active under bit-tap.
-  bridge.setBit(0, 1);
-  rec.outlets.length = 0;
-  bridge.step(0);
-  const noteOn = rec.notes.find((n) => n.velocity > 0);
-  assert.ok(noteOn);
-  // Default range is [48, 72]; gate-mode midpoint = 60.
-  assert.equal(noteOn.pitch, 60);
+  assert.equal(rec.outlets.length, 0);
 });
 
 test("setRange — orders lo ≤ hi via host", () => {
@@ -414,12 +381,18 @@ test("setParam subdivision — resets msPerStep so the new rate doesn't inherit 
   // after the next step's noteOn — producing audible click / hung note.
   // Resetting msPerStep on subdivision change forces the next step pair
   // to rebuild the estimate from scratch against the new dt.
+  //
+  // length=2 + setBit(0,1) + setBit(1,1) keeps the register at 0b11
+  // under lock=1, so every step's bit-tap gate sees LSB=1 and fires.
   const { bridge, rec } = makeBridge({
     seed: 1,
+    length: 2,
     density: 1.0,
     lock: 1.0,
     outputGate: 1.0, // schedule ms == msPerStep, easy to assert
   });
+  bridge.setBit(0, 1);
+  bridge.setBit(1, 1);
   // Establish msPerStep ≈ 125ms (16th @ 120 BPM)
   rec.nowValue = 0;
   bridge.step(0);

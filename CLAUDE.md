@@ -184,7 +184,10 @@ make open               # launch the Standalone build (dev only)
 - MIDI effect: emits probabilistic note sequences from a shift register
 - Turing Machine: shift register with probability-controlled bit flip
   (cf. Music Thing Turing Machine)
-- Output modes: `note` (default) / `gate` / `velocity` (see ADR 003)
+- Output: every active step emits one noteOn carrying `(pitch, velocity,
+  gate)` simultaneously — pitch from the register via `mapToNote`,
+  velocity from `outputVelocity`, gate length from `outputGate × stepDur`
+  (see ADR 007 §Output)
 - Scale-locked output is achieved by chaining downstream Pointsman
   (`Stencil → Pointsman → Synth` is the canonical use)
 - Parameters normalized in plugin/host layer

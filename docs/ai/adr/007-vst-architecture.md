@@ -49,9 +49,7 @@ register supplies the *varying* aspect (pitch from `mapToNote`)
 while `outputVelocity` and `outputGate` set the constant
 attributes. §Parameter surface drops the `mode` row; §MIDI
 processing step 5 simplifies (no per-mode branch); §Output modes
-section replaced by §Output (single dispatch). m4l v1.0 still
-ships the old mode dispatch; spec divergence is intentional and
-m4l will follow.
+section replaced by §Output (single dispatch).
 **Revised**: 2026-05-16 — `density` semantic changed from "fill
 empties" (`bit0 || densityDraw < density`) to "bit-tap gate"
 (`bit0 && densityDraw < density`). The old `||` form let
@@ -62,8 +60,18 @@ default `density=1.0` still means "every on-bit plays" so the
 common-case ergonomics are preserved. The musical effect of
 density now reads as "rhythmic thinning" of the loop pattern,
 not "stochastic fill of empties." See §MIDI processing step 5c.
-m4l still ships the old `||` semantic; reconciliation in the
-m4l catchup release alongside the mode-removal carry-over.
+**Revised**: 2026-05-16 — m4l caught up to the vst spec. m4l drops
+the `mode` parameter and the per-mode pitch / velocity dispatch
+(matching the 2026-05-15 revision), flips its bit-tap rule from
+`||` to `&&` (matching the density revision above), publishes a
+pre-shift register snapshot per step via the bridge's `register`
+outlet, and the jsui ring switches to the CCW arrangement +
+anticipation phase rotation (vst's d87f97b animation model).
+The m4l-vs-vst cross-target divergence noted in the 2026-05-15
+and earlier 2026-05-16 entries is closed; the only remaining
+intentional difference is the click-to-edit affordance
+(m4l setBit vs vst click-to-ROLL), documented in §Editor
+§FREEZE / ROLL semantics.
 
 This ADR specifies the `vst/` target's architecture: the plugin formats
 shipped, the C++17 source layout (`Engine` / `Plugin` / `Editor`), the
@@ -467,9 +475,9 @@ must NOT resurrect a mode-style exclusive dispatch.
 
 [concept-future]: ../concept.md#future-extensions
 
-m4l v1.0 still ships the inboil-style mode dispatch; this is the
-only intentional cross-target divergence as of 2026-05-15 and
-will be reconciled when m4l catches up to the vst spec.
+m4l caught up to the single-dispatch spec on 2026-05-16; both
+targets now emit one note per active step with the same
+`(pitch, velocity, gate)` shape.
 
 #### Note-off discipline
 
@@ -826,12 +834,13 @@ pass at every phase boundary.
       ring with revolver rotation, head-bit highlight, fraction +
       note center text.
 - [x] `Source/Editor/ActionsView.h/.cpp` — FREEZE / ROLL buttons.
-- [x] `Source/Editor/RightRailView.h/.cpp` — 5 fieldsets
-      (Parameters / Mode / Output / Trigger / Reproducibility) with
-      APVTS attachments for all 13 params. (`outputChannel` is
-      attached and persisted but laid out at zero size; surfacing
+- [x] `Source/Editor/RightRailView.h/.cpp` — 4 fieldsets
+      (Parameters / Output / Trigger / Reproducibility) with APVTS
+      attachments for all 12 params (was 5 fieldsets / 13 params
+      before the 2026-05-15 Mode-fieldset removal). `outputChannel`
+      is attached and persisted but laid out at zero size; surfacing
       it as a visible row deferred to a UI iteration once the
-      Trigger fieldset's vertical budget is reworked.)
+      Trigger fieldset's vertical budget is reworked.
 - [x] `Source/Editor/HistoryView.h/.cpp` — output history bar series.
 - [x] `Source/Editor/PluginEditor.h/.cpp` — top-level layout
       (header / body / history) + initial size 820 × 540.
@@ -909,9 +918,9 @@ Best-effort (load + smoke; not blocking for v1):
 - [ ] **Cross-target audible parity** — load `Stencil.amxd` (m4l)
       and `Stencil.vst3` with identical `(seed, length, lock,
       density, range, subdivision)`. Run both at 120 BPM through
-      the same synth. Pitch sequence must match. *(Velocity / gate
-      shape will diverge until m4l drops mode dispatch; only pitch
-      parity is in scope.)*
+      the same synth. Pitch sequence must match — and velocity /
+      gate should also match now that m4l caught up to the
+      single-dispatch spec (2026-05-16).
 - [ ] **Output single-dispatch** — every active step emits one
       noteOn with `pitch = mapToNote(reg, range)`,
       `velocity = outputVelocity`, `gate = outputGate × stepDur`.
@@ -973,10 +982,9 @@ Tag legend: `(code, vst)` / `(code, m4l)` / `(doc)`.
 - [ ] **`m4l` `setParam` flush misses `outputChannel`** (code, m4l)
       — vst flushes on `outputChannel` (this ADR's hung-note
       discipline fix); m4l-side `host.ts:setParam`'s `flushKeys`
-      array omits it. Symmetrize. *(2026-05-15: `mode` removed
-      from this item — the parameter no longer exists vst-side;
-      m4l will drop it when it catches up to the single-dispatch
-      spec.)*
+      array omits it. Symmetrize. *(`mode` dropped from this item
+      on 2026-05-16 when m4l caught up to the single-dispatch spec;
+      the parameter no longer exists on either side.)*
 - [x] **`rangeLo` / `rangeHi` clamp direction differs target-to-target**
       (doc) — vst clamps the *other* side (APVTS UX expects
       not-just-moved side to follow); m4l clamps the side the user
@@ -1093,10 +1101,13 @@ Tag legend: `(code, vst)` / `(code, m4l)` / `(doc)`.
 ## Per-target notes
 
 - **vst** — this ADR.
-- **m4l** — unaffected. The cross-target conformance tests are the
-  only m4l touch (m4l reads the same `rng-test-vectors.json` and
-  `turing-test-vectors.json` already; no change needed for vst to
-  consume them too).
+- **m4l** — followed onto the same spec on 2026-05-16: mode dispatch
+  dropped, density bit-tap gate flipped to `&&`, pre-shift register
+  snapshot published per step, jsui ring adopts CCW arrangement +
+  anticipation phase rotation (mirrors vst's d87f97b). The cross-
+  target conformance tests already read the shared
+  `rng-test-vectors.json` and `turing-test-vectors.json`; engine
+  semantics remain a single source of truth.
 - **Engine semantics (ADR 001 contract)** — the C++ port is bound
   by the same test vectors as the TS port. Drift is caught at
   build time by `make test` failing on vector mismatch.

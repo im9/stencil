@@ -15,7 +15,7 @@
 //     - header band (no in-strip product banner; no "im9" byline)
 //     - [jsui] referencing registerRing.jsui.js (flat, m4l/ root)
 //     - [node.script stencil.mjs ...] present (flat path, m4l/ root)
-//     - 12 live.* widgets per ADR 002 §live.* parameter surface:
+//     - live.* widgets per ADR 002 §live.* parameter surface:
 //       longname / shortname / parameter_type / mmin / mmax / initial
 //     - every live.* change fires `setParam <bridgeKey>` to node.script
 //     - register / position outlets route from node.script to jsui
@@ -118,27 +118,33 @@ function reachable(lines, srcId, dstId, maxDepth = 6) {
 // patcher cannot drift from the spec without an explicit update here.
 const LIVE_PARAMS = [
   // longname,             shortname, bridgeKey,         type, mmin, mmax, initial
-  ['StencilTmLength',      'Len',     'length',          1, 2,    32,         8],
-  ['StencilTmLock',        'Lock',    'lock',            0, 0,    1,          0.5],
-  ['StencilTmRangeLo',     'RngLo',   'rangeLo',         1, 0,    127,        48],
-  ['StencilTmRangeHi',     'RngHi',   'rangeHi',         1, 0,    127,        72],
-  ['StencilTmDensity',     'Dens',    'density',         0, 0,    1,          1],
-  ['StencilTmSeed',        'Seed',    'seed',            1, 0,    2147483647, 42],
-  ['StencilTmInputChannel','InCh',    'inputChannel',    1, 0,    16,         0],
-  ['StencilTmOutputVelocity','OutVel','outputVelocity',  1, 1,    127,        100],
-  ['StencilTmOutputGate',  'OutGt',   'outputGate',      0, 0,    1,          0.5],
-  ['StencilTmOutputChannel','OutCh',  'outputChannel',   1, 1,    16,         1],
+  ['StencilTmLength',      'LEN',     'length',          1, 2,    32,         8],
+  ['StencilTmLock',        'LOCK',    'lock',            0, 0,    1,          0.5],
+  ['StencilTmRangeLo',     'LO',      'rangeLo',         1, 0,    127,        48],
+  ['StencilTmRangeHi',     'HI',      'rangeHi',         1, 0,    127,        72],
+  ['StencilTmDensity',     'DENS',    'density',         0, 0,    1,          1],
+  ['StencilTmSeed',        'SEED',    'seed',            1, 0,    2147483647, 42],
+  ['StencilTmOutputVelocity','VEL',   'outputVelocity',  1, 1,    127,        100],
+  ['StencilTmOutputGate',  'GATE',    'outputGate',      0, 0,    1,          0.5],
 ]
 // Enum widgets (live.menu) carry parameter_enum instead of mmin/mmax.
 // Initial is the index into the enum; the bridge expects the string value.
-// `StencilTmMode` per ADR 003 §TM output mode: per-step output dispatch
-// (note → pitch from regValue; gate → fixed-pitch midrange; velocity →
-// pitch from regValue + velocity from regValue).
+// The earlier `StencilTmMode` (note / gate / velocity output dispatch)
+// was removed per the vst spec (2026-05-15) — a MIDI note carries pitch,
+// velocity, and gate simultaneously, so the mode dispatch was modeling
+// the attributes as exclusive when they aren't. m4l caught up to the
+// single-dispatch spec on 2026-05-16.
 const LIVE_ENUMS = [
-  // longname,              shortname, bridgeKey,     enumStrings,                    initialIdx
-  ['StencilTmSubdivision',  'Subdiv',  'subdivision', ['8th', '16th', '32nd', '8T', '16T'], 1],
-  ['StencilTmTriggerMode',  'Trig',    'triggerMode', ['auto', 'gate', 'seed'],             0],
-  ['StencilTmMode',         'Mode',    'mode',        ['note', 'gate', 'velocity'],         0],
+  // longname,                shortname, bridgeKey,      enumStrings,                                                                                                                                          initialIdx
+  ['StencilTmSubdivision',    'Subdiv',  'subdivision',  ['8th', '16th', '32nd', '8T', '16T'],                                                                                                                  1],
+  ['StencilTmTriggerMode',    'Trig',    'triggerMode',  ['auto', 'gate', 'seed'],                                                                                                                              0],
+  // IN-CH / OUT-CH are pulldowns (live.menu) per Ableton MIDI-channel
+  // convention. IN-CH enum index = MIDI channel directly (0=OMNI, 1..16);
+  // bridge accepts 0..16 verbatim, no transform. OUT-CH enum starts at
+  // "1" (index 0 = channel 1); a `[+ 1]` box converts the menu's
+  // 0..15 index to 1..16 before the prep-outputChannel chain.
+  ['StencilTmInputChannel',   'IN-CH',   'inputChannel', ['OMNI', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16'],                                                       0],
+  ['StencilTmOutputChannel',  'OUT-CH',  'outputChannel',['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16'],                                                                0],
 ]
 
 // ---- ADR 004 §Guard tests ----------------------------------------------
@@ -201,12 +207,13 @@ test('every patchline source/destination id resolves to a known box', () => {
 
 // ---- ADR 003 §Stencil patcher ------------------------------------------
 
-test('devicewidth = 1000 and openinpresentation = 1', () => {
-  // ADR 003 §Stencil patcher: devicewidth = 1000, openinpresentation
-  // so the device shows the presentation view (not the patcher view) in
-  // Live's device strip.
+test('devicewidth = 748 and openinpresentation = 1', () => {
+  // Stencil presents in 4 narrow fieldsets (Parameters / Register / Output /
+  // Trigger) packed to ~748 px total so the device strip doesn't overflow
+  // Live's standard view. Was 1000 px when the layout used 3 wider panels;
+  // narrowed 2026-05-16 when the per-fieldset packing landed.
   const { parsed } = loadPatcher(MAXPAT)
-  assert.equal(parsed.patcher.devicewidth, 1000)
+  assert.equal(parsed.patcher.devicewidth, 748)
   assert.equal(parsed.patcher.openinpresentation, 1)
 })
 
@@ -222,15 +229,18 @@ test('no in-strip product banner + no "im9" byline', () => {
   assert.ok(!comments.some((t) => /\bim9\b/.test(t)), 'no im9 byline')
 })
 
-test('has GENERATE / REGISTER / I\\/O group legends', () => {
-  // ADR 003 §Layout sketch — three vertical column groups. Catches a
-  // missing legend tab (which would leave an unlabeled border box in
-  // the device, defeating the fieldset-with-corner-label idiom).
+test('has Parameters / Register / Output / Trigger group legends', () => {
+  // 4 fieldsets following the vst right-rail classification (vst's
+  // Output / Trigger / Reproducibility three-pack maps to Output +
+  // Trigger here since IN-CH/OUT-CH/SEED don't fit alongside RANGE in
+  // a strip-width budget). Catches a missing legend tab — an unlabeled
+  // border box would defeat the fieldset-with-corner-label idiom.
   const { boxes } = loadPatcher(MAXPAT)
   const comments = boxesByMaxclass(boxes, 'comment').map((b) => b.box.text)
-  assert.ok(comments.some((t) => /^GENERATE$/.test(t)), 'GENERATE legend')
-  assert.ok(comments.some((t) => /^REGISTER$/.test(t)), 'REGISTER legend')
-  assert.ok(comments.some((t) => /^I\/O$/.test(t)), 'I/O legend')
+  assert.ok(comments.some((t) => /^Parameters$/.test(t)), 'Parameters legend')
+  assert.ok(comments.some((t) => /^Register$/.test(t)), 'Register legend')
+  assert.ok(comments.some((t) => /^Output$/.test(t)), 'Output legend')
+  assert.ok(comments.some((t) => /^Trigger$/.test(t)), 'Trigger legend')
 })
 
 test('[bpatcher] wraps the ring sub-patcher', () => {
@@ -262,6 +272,103 @@ test('registerRing.subpatcher.maxpat parses and contains the [jsui]', () => {
     subJsuis.some((b) => b.box.filename === 'registerRing.jsui.js'),
     'sub-patcher must contain a jsui referencing registerRing.jsui.js',
   )
+})
+
+test('[bpatcher] wraps the range-slider sub-patcher', () => {
+  // The LO/HI MIDI-range control is a 2-thumb slider implemented as a
+  // jsui (rangeSlider.jsui.js), wrapped by a sub-patcher and bpatcher
+  // for the same box.rect-anchor isolation reason as the register ring.
+  const { boxes } = loadPatcher(MAXPAT)
+  const bpatchers = boxesByMaxclass(boxes, 'bpatcher')
+  assert.ok(
+    bpatchers.some((b) => b.box.name === 'rangeSlider.subpatcher.maxpat'),
+    'expected bpatcher wrapping rangeSlider.subpatcher.maxpat',
+  )
+})
+
+test('rangeSlider.subpatcher.maxpat parses and contains the [jsui]', () => {
+  const subpatcherPath = resolve(M4L_ROOT, 'rangeSlider.subpatcher.maxpat')
+  assert.ok(existsSync(subpatcherPath), 'rangeSlider.subpatcher.maxpat missing')
+  const sub = loadPatcher(subpatcherPath)
+  const subJsuis = sub.boxes.filter((b) => b.box?.maxclass === 'jsui')
+  assert.ok(
+    subJsuis.some((b) => b.box.filename === 'rangeSlider.jsui.js'),
+    'sub-patcher must contain a jsui referencing rangeSlider.jsui.js',
+  )
+})
+
+test('range-slider bpatcher round-trips with the live.dial-rangeLo/Hi widgets', () => {
+  // Wiring contract:
+  //   bpatcher out -> [route rangeLo rangeHi] -> live.dial-rangeLo/Hi
+  //     (bare int sets value + triggers the existing setParam chain).
+  //   live.dial-rangeLo/Hi out -> [prepend setLo|setHi] -> bpatcher in
+  //     (display sync; jsui only emits on user drag, no feedback loop).
+  const { boxes, lines } = loadPatcher(MAXPAT)
+  const bp = boxesByMaxclass(boxes, 'bpatcher').find(
+    (b) => b.box.name === 'rangeSlider.subpatcher.maxpat',
+  )
+  assert.ok(bp, 'rangeSlider bpatcher missing')
+  const dialLo = boxes.find(
+    (b) => b.box?.saved_attribute_attributes?.valueof?.parameter_longname === 'StencilTmRangeLo',
+  )
+  const dialHi = boxes.find(
+    (b) => b.box?.saved_attribute_attributes?.valueof?.parameter_longname === 'StencilTmRangeHi',
+  )
+  assert.ok(dialLo && dialHi, 'live.dial-rangeLo / rangeHi missing')
+  assert.ok(reachable(lines, bp.box.id, dialLo.box.id),
+    'bpatcher -> ... -> live.dial-rangeLo chain missing')
+  assert.ok(reachable(lines, bp.box.id, dialHi.box.id),
+    'bpatcher -> ... -> live.dial-rangeHi chain missing')
+  assert.ok(reachable(lines, dialLo.box.id, bp.box.id),
+    'live.dial-rangeLo -> ... -> bpatcher chain missing')
+  assert.ok(reachable(lines, dialHi.box.id, bp.box.id),
+    'live.dial-rangeHi -> ... -> bpatcher chain missing')
+})
+
+test('rangeLo / rangeHi live.dial widgets stay off-presentation', () => {
+  // The slider bpatcher is the user-facing control; the underlying
+  // live.dial widgets exist only as the source-of-truth for Live's
+  // parameter system. They must NOT appear in the device strip --
+  // otherwise the user sees duplicated controls. Drift here means an
+  // accidental `presentation: 1` on either dial.
+  const { boxes } = loadPatcher(MAXPAT)
+  for (const longname of ['StencilTmRangeLo', 'StencilTmRangeHi']) {
+    const w = boxes.find(
+      (b) => b.box?.saved_attribute_attributes?.valueof?.parameter_longname === longname,
+    )
+    assert.ok(w, `${longname} missing`)
+    assert.ok(!w.box.presentation,
+      `${longname} must NOT have presentation: 1 (slider is the user control)`)
+  }
+})
+
+test('RND button rerolls the seed via [random] into live.numbox-seed', () => {
+  // The SEED parameter range is 0..2^31-1 -- a raw numeric entry is
+  // essentially meaningless to the user. The RND button bangs a
+  // [random 2147483647] into the seed numbox, generating a fresh
+  // loop pattern on click. The numbox's outlet then carries the new
+  // value through the existing prep-seed chain to the host.
+  const { boxes, lines } = loadPatcher(MAXPAT)
+  const rndBtn = boxes.find((b) => b.box?.id === 'obj-rnd-btn')
+  assert.ok(rndBtn, 'RND button missing')
+  assert.equal(rndBtn.box.maxclass, 'live.text')
+  assert.equal(rndBtn.box.text, 'RND')
+  const rndGen = boxes.find((b) => b.box?.text && /^random\s+2147483647/.test(b.box.text))
+  assert.ok(rndGen, '[random 2147483647] box missing')
+  const seedNum = boxes.find(
+    (b) => b.box?.saved_attribute_attributes?.valueof?.parameter_longname === 'StencilTmSeed',
+  )
+  assert.ok(seedNum, 'seed numbox missing')
+  // RND btn -> random -> seed numbox -> prep-seed -> node.script
+  assert.ok(followsLineFromTo(lines, rndBtn.box.id, rndGen.box.id),
+    'RND button -> [random] wire missing')
+  assert.ok(followsLineFromTo(lines, rndGen.box.id, seedNum.box.id),
+    '[random] -> live.numbox-seed wire missing')
+  const nodescript = boxesByMaxclass(boxes, 'newobj').find((b) =>
+    /^node\.script\s+stencil\.mjs\b/.test(b.box.text),
+  )
+  assert.ok(reachable(lines, seedNum.box.id, nodescript.box.id),
+    'seed numbox -> ... -> node.script chain broken')
 })
 
 test('[node.script] references stencil.mjs (flat path)', () => {
@@ -359,20 +466,43 @@ for (const [longname, shortname, bridgeKey, enumValues, initialIdx] of LIVE_ENUM
     assert.equal(attrs.parameter_initial[0], initialIdx, 'initial index')
   })
 
-  test(`${longname} dispatches one [message setParam ${bridgeKey} <enum>] per value`, () => {
-    // live.menu emits the int index; [sel 0 1 ...] fans it out to
-    // discrete `setParam triggerMode auto` / `... gate` / `... seed`
-    // messages. Catch missing or extra cases.
-    const { boxes } = loadPatcher(MAXPAT)
-    const messages = boxesByMaxclass(boxes, 'message').map((b) => b.box.text)
-    for (const v of enumValues) {
-      const expected = `setParam ${bridgeKey} ${v}`
+  // String-enum menus (subdivision, triggerMode) fan the index into
+  // discrete `setParam <key> <enumValue>` messages via [sel]; that's
+  // checked here. Numeric-enum menus (inputChannel, outputChannel)
+  // pipe their index straight to a prep-* via the int outlet
+  // (outputChannel adds 1 first to bridge the 0..15 -> 1..16 gap), so
+  // the per-value-message check doesn't apply.
+  const stringEnumKeys = new Set(['subdivision', 'triggerMode'])
+  if (stringEnumKeys.has(bridgeKey)) {
+    test(`${longname} dispatches one [message setParam ${bridgeKey} <enum>] per value`, () => {
+      const { boxes } = loadPatcher(MAXPAT)
+      const messages = boxesByMaxclass(boxes, 'message').map((b) => b.box.text)
+      for (const v of enumValues) {
+        const expected = `setParam ${bridgeKey} ${v}`
+        assert.ok(
+          messages.includes(expected),
+          `missing message: "${expected}"`,
+        )
+      }
+    })
+  } else {
+    test(`${longname} pipes menu index to [prepend setParam ${bridgeKey}]`, () => {
+      // Numeric MIDI-channel menus skip the per-value message bank --
+      // the index IS the value (for inputChannel where index 0 = OMNI
+      // = MIDI ch 0) or the value is index+1 (for outputChannel where
+      // index 0 = "1" = MIDI ch 1). We assert the widget reaches the
+      // prep-* box, leaving the optional [+ 1] adjustment between
+      // them out of scope for the wiring check.
+      const { boxes, lines } = loadPatcher(MAXPAT)
+      const w = findLiveWidget(boxes, longname)
+      const prep = findPrependBox(boxes, `setParam ${bridgeKey}`)
+      assert.ok(prep, `missing [prepend setParam ${bridgeKey}]`)
       assert.ok(
-        messages.includes(expected),
-        `missing message: "${expected}"`,
+        reachable(lines, w.box.id, prep.box.id),
+        `${longname} -> [prepend setParam ${bridgeKey}] chain missing`,
       )
-    }
-  })
+    })
+  }
 }
 
 // ---- subdivision → qmetro reconfig ------------------------------------
@@ -410,7 +540,7 @@ test('subdivision menu reconfigures qmetro interval + quantize per enum value', 
   }
 })
 
-test('all 12 live.* parameters are present (no extras, no missing)', () => {
+test('all live.* parameters per LIVE_PARAMS + LIVE_ENUMS are present (no extras, no missing)', () => {
   // Cross-check the per-widget tests with a count assertion. Catches a
   // silent duplicate longname or an extra unrelated live.* widget that
   // would inflate the parameter list shown to the user in Live.
@@ -463,7 +593,7 @@ test('bpatcher setBit outlet routes to node.script (ring click handler)', () => 
 })
 
 test('node.script "ready" outlet bangs each live.* widget for initial value bootstrap', () => {
-  // ADR 003 §Stencil patcher line 359-363: on device load the 12 setParam
+  // ADR 003 §Stencil patcher line 359-363: on device load the setParam
   // messages race against [node.script] startup; without a handshake they
   // drop with "Node script not ready". Fix: stencil.mjs emits
   // Max.outlet('ready') after all addHandler calls; the patcher's

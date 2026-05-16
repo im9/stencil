@@ -21,7 +21,6 @@ export type MidiNote = number; // 0..127
 export type Channel = number; // 1..16
 export type Subdivision = "8th" | "16th" | "32nd" | "8T" | "16T";
 export type TriggerMode = "auto" | "gate" | "seed";
-export type TmMode = "note" | "gate" | "velocity";
 
 export type NoteEvent =
   | { type: "noteOn"; pitch: MidiNote; velocity: number; channel: Channel; delaySteps: number }
@@ -40,7 +39,6 @@ export interface HostParams {
   outputVelocity: number; // 1..127
   outputGate: number; // 0..1, fraction of step
   outputChannel: Channel; // 1..16
-  mode: TmMode; // ADR 003 §TM register ring — output dispatch
 }
 
 export const DEFAULT_PARAMS: HostParams = {
@@ -56,7 +54,6 @@ export const DEFAULT_PARAMS: HostParams = {
   outputVelocity: 100,
   outputGate: 0.5,
   outputChannel: 1,
-  mode: "note",
 };
 
 function noteKey(pitch: number, channel: number): string {
@@ -74,6 +71,14 @@ export class TmHost {
   private position: number;
   private heldInputs: Set<string>; // gate mode
   private seedActivated: boolean; // seed mode: false until first input
+  // Pre-shift snapshot captured at the start of step() — equals the
+  // register that was just emitted (bit 0 is the LSB the listener heard).
+  // The anticipation-animation ring (vst spec ported 2026-05-16) draws
+  // this snapshot during the playing portion of the step, then eases bit 1
+  // to the top during the trailing portion so it becomes bit 0 of the
+  // next snapshot. Defaults to the constructor's initial register so the
+  // first paint has something coherent to show before the first step.
+  private lastEmittedRegister: number;
 
   constructor(params: HostParams = DEFAULT_PARAMS) {
     this.params = { ...params };
@@ -83,6 +88,7 @@ export class TmHost {
     this.register = init.register;
     this.rng = init.rng;
     this.position = 0;
+    this.lastEmittedRegister = init.register;
   }
 
   private freshRegister(): { register: number; rng: RngState } {
@@ -107,53 +113,46 @@ export class TmHost {
       return events;
     }
 
+    // Snapshot the pre-shift register: its LSB is the bit this step plays,
+    // and the anticipation-animation ring reads it to render the playhead
+    // and the salmon mutated-bit halo.
+    this.lastEmittedRegister = this.register;
+
     // Read current register for output (read-then-shift per ADR 001)
     const f = registerToFraction(this.register, this.params.length);
-    const frac = f.den > 0 ? f.num / f.den : 0;
 
-    // Bit-tap active (ADR 003 §TM register ring): the bit at the read head
-    // (LSB) determines whether the step fires. An "on" bit at the pointer
-    // ALWAYS triggers; an "off" bit fires with probability `density` (random
-    // fill). The density draw is consumed unconditionally so the rng thread
-    // advances identically across mode/density combinations.
+    // Bit-tap gate (vst spec 2026-05-16): the LSB is the gate; bit 0 (off)
+    // is always silent (white ring bit = no audible note, the visual
+    // contract). When LSB=1, density is the probability that the gate
+    // opens, so density acts as a rhythmic-thinning knob applied to the
+    // bit pattern. density=1.0 (default) opens the gate every time. The
+    // density draw is consumed unconditionally so the rng thread advances
+    // identically regardless of bit outcome — keeps the cross-target
+    // turing-test-vectors.json parity intact.
     const bit0 = (this.register & 1) === 1;
     const dDraw = nextU32(this.rng);
     const dThresh = probabilityThreshold(this.params.density);
-    const fillFire = dDraw.value < dThresh;
+    const gateOpens = dDraw.value < dThresh;
     this.rng = dDraw.state;
-    const active = bit0 || fillFire;
+    const active = bit0 && gateOpens;
 
-    // Per-mode pitch / velocity dispatch (ADR 003 §TM output mode):
-    //   note     → pitch from regValue, velocity = outputVelocity
-    //   gate     → pitch = midpoint of range (rhythmic articulation)
-    //   velocity → pitch from regValue, velocity = (0.3 + frac · 0.7) · outputVelocity
-    let note: MidiNote;
-    let velocity: number;
-    if (this.params.mode === "gate") {
-      note = Math.floor((this.params.rangeLo + this.params.rangeHi) / 2);
-      velocity = this.params.outputVelocity;
-    } else if (this.params.mode === "velocity") {
-      note = mapToNote(
-        f.num,
-        f.den,
-        this.params.rangeLo,
-        this.params.rangeHi,
-      );
-      const vNorm = 0.3 + frac * 0.7;
-      velocity = Math.max(
-        1,
-        Math.min(127, Math.floor(vNorm * this.params.outputVelocity)),
-      );
-    } else {
-      // 'note' (default)
-      note = mapToNote(
-        f.num,
-        f.den,
-        this.params.rangeLo,
-        this.params.rangeHi,
-      );
-      velocity = this.params.outputVelocity;
-    }
+    // Single-dispatch output (vst spec 2026-05-15): every active step
+    // emits one noteOn carrying (pitch, velocity, gate). Pitch is the
+    // varying reg-derived attribute; velocity and gate are constant
+    // slider values. The earlier note / gate / velocity mode dispatch
+    // treated the three attributes as mutually exclusive branches,
+    // which doesn't match what a MIDI note actually is. The old
+    // gate-mode "pitch = range midpoint" is recoverable by setting
+    // rangeLo == rangeHi; the old velocity-mode reg-driven velocity
+    // shaping is dropped (see concept.md §Future extensions for the
+    // shape any future per-attribute modulation should take).
+    const note: MidiNote = mapToNote(
+      f.num,
+      f.den,
+      this.params.rangeLo,
+      this.params.rangeHi,
+    );
+    const velocity = this.params.outputVelocity;
 
     // Register advancement
     const isSeedActive =
@@ -301,6 +300,14 @@ export class TmHost {
   // Inspection (for UI side-channels and tests).
   getRegister(): number {
     return this.register;
+  }
+  // Pre-shift snapshot of the register at the most recent step() call —
+  // bit 0 is the LSB the listener heard. Bridge publishes this to the
+  // jsui anticipation ring so the playhead bit equals the bit currently
+  // sounding. Before the first step() the snapshot equals the initial
+  // register (no shifts have happened yet).
+  getLastEmittedRegister(): number {
+    return this.lastEmittedRegister;
   }
   getPosition(): number {
     return this.position;

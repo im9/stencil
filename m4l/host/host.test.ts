@@ -42,7 +42,10 @@ test("constructor — deterministic initial register from seed", () => {
   assert.equal(host.getPosition(), 0);
 });
 
-test("step auto mode density=1.0 — emits noteOn + delayed noteOff", () => {
+test("step auto mode density=1.0 + bit0=1 — emits noteOn + delayed noteOff", () => {
+  // Under the bit-tap gate (vst spec 2026-05-16): density=1 + bit0=1 fires;
+  // bit0 must be 1 for the gate to even consider the density draw, so the
+  // test forces bit0 via setBit before stepping.
   const host = makeHost({
     seed: 1,
     length: 8,
@@ -54,6 +57,7 @@ test("step auto mode density=1.0 — emits noteOn + delayed noteOff", () => {
     outputGate: 0.5,
     outputChannel: 1,
   });
+  host.setBit(0, 1);
   const events = host.step(0);
   const { noteOns, noteOffs } = notesFromEvents(events);
   assert.equal(noteOns.length, 1);
@@ -65,7 +69,13 @@ test("step auto mode density=1.0 — emits noteOn + delayed noteOff", () => {
   assert.equal(noteOffs[0].delaySteps, 0.5);
 });
 
-test("step matches tm_step vector trace (lock=1.0 perfect loop)", () => {
+test("step pitch matches mapToNote(register_in) on every step (vector parity)", () => {
+  // The bit-tap gate decides WHETHER a step fires (LSB=1 && density draw
+  // opens the gate). The note VALUE when it does fire is still
+  // mapToNote(register_in, range) — the canonical pitch mapping from
+  // ADR 001. Cross-target conformance lives in turing-test-vectors.json
+  // (engine layer); here we just verify the host wires the same pitch
+  // path for every step the gate happens to open.
   const sc = V.tm_step.find(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (c: any) => c.name === "perfect loop (lock=1.0, density=1.0)",
@@ -79,196 +89,80 @@ test("step matches tm_step vector trace (lock=1.0 perfect loop)", () => {
     rangeLo: sc.range[0],
     rangeHi: sc.range[1],
   });
+  let fired = 0;
   for (const expected of sc.trace) {
+    const gateBit = expected.register_in & 1;
     const events = host.step(expected.step);
     const noteOns = events.filter((e) => e.type === "noteOn");
-    if (expected.active) {
-      assert.equal(noteOns.length, 1, `step ${expected.step} active`);
+    // density=1 means the gate always opens; under bit-tap the host fires
+    // iff bit0 of register_in is 1.
+    if (gateBit === 1) {
+      assert.equal(noteOns.length, 1, `step ${expected.step} bit0=1 must fire`);
       assert.equal(
         noteOns[0].pitch,
         expected.note,
-        `step ${expected.step} pitch`,
+        `step ${expected.step} pitch must match vector`,
       );
+      fired++;
     } else {
-      assert.equal(noteOns.length, 0, `step ${expected.step} silent`);
+      assert.equal(noteOns.length, 0, `step ${expected.step} bit0=0 must be silent`);
     }
   }
+  // The 16-step perfect loop with seed=1 length=8 has mixed bits, so we
+  // expect at least one fire and at least one silence — a sanity check that
+  // the bit-tap gate is actually exercised in both directions.
+  assert.ok(fired > 0 && fired < sc.trace.length, "loop exercises both bit values");
 });
 
 test("step density=0 — no events, but rng still advances", () => {
-  // seed=1 length=8 register = 0xe4 (binary 11100100), bit0 = 0. Under
-  // bit-tap (ADR 003 §TM register ring): bit0=0 + density=0 → silent.
+  // bit-tap (vst spec 2026-05-16): density=0 closes the gate on every step.
+  // The density draw is still consumed so the rng thread advances
+  // identically, and the register evolves via shiftAndFlip's lock draw.
   const host = makeHost({ seed: 1, length: 8, density: 0.0 });
   const reg0 = host.getRegister();
-  assert.equal(reg0 & 1, 0, "precondition: seed=1 register has bit0=0");
   const events = host.step(0);
   assert.equal(events.length, 0);
   // Register advanced (auto mode shiftAndFlip ran)
   assert.notEqual(host.getRegister(), reg0);
 });
 
-// ── ADR 003 §TM register ring — bit-tap active ───────────────────────────────
+// ── bit-tap gate (vst spec 2026-05-16: bit0 && density-draw) ─────────────────
 
-test("bit-tap: bit0=1 fires regardless of density (on-bit always active)", () => {
-  // ADR 003 spec: a bit shown as `1` at the pointer MUST fire. density=0
-  // would suppress under the old rng-based gate; bit-tap overrides.
-  const host = makeHost({ seed: 1, length: 8, density: 0.0, lock: 1.0 });
-  host.setBit(0, 1); // force bit0 = 1
-  const events = host.step(0);
-  const noteOns = events.filter((e) => e.type === "noteOn");
-  assert.equal(noteOns.length, 1, "bit0=1 with density=0 must still fire");
+test("bit-tap: bit0=0 silent regardless of density (visual contract: white = no sound)", () => {
+  // The LSB is the gate. A "0" bit at the read head — drawn as a white
+  // circle on the ring — must NEVER produce an audible note, no matter
+  // what density is set to. This is the visual contract: what you see is
+  // what you hear. Replaces the old `||` semantic where density=1 could
+  // "fill" off-bits stochastically — that broke the contract.
+  for (const density of [0.0, 0.5, 1.0]) {
+    const host = makeHost({ seed: 1, length: 8, density, lock: 1.0 });
+    host.setBit(0, 0); // force bit0 = 0
+    const events = host.step(0);
+    const noteOns = events.filter((e) => e.type === "noteOn");
+    assert.equal(noteOns.length, 0, `bit0=0 + density=${density} must be silent`);
+  }
 });
 
-test("bit-tap: bit0=0 + density=0 silent (off-bit, no random fill)", () => {
-  // ADR 003: off-bit fires with probability density. density=0 → no fill.
-  const host = makeHost({ seed: 1, length: 8, density: 0.0, lock: 1.0 });
-  host.setBit(0, 0); // force bit0 = 0
-  const events = host.step(0);
-  const noteOns = events.filter((e) => e.type === "noteOn");
-  assert.equal(noteOns.length, 0, "bit0=0 + density=0 must be silent");
-});
-
-test("bit-tap: bit0=0 + density=1 fires via random fill (off-bit fill)", () => {
-  // ADR 003: density=1 → off-bits always fire (full random fill). Combined
-  // with bit-tap on-bits, every step triggers.
+test("bit-tap: bit0=1 + density=1 fires (gate fully open)", () => {
+  // The common-case default: density=1.0 opens the gate every time, so
+  // every on-bit step fires. Preserves the original "lock=1 + density=1
+  // → perfect loop is audible" ergonomics from the previous spec.
   const host = makeHost({ seed: 1, length: 8, density: 1.0, lock: 1.0 });
-  host.setBit(0, 0); // force bit0 = 0
-  const events = host.step(0);
-  const noteOns = events.filter((e) => e.type === "noteOn");
-  assert.equal(noteOns.length, 1, "bit0=0 + density=1 fires via fill");
-});
-
-test("bit-tap: bit0=1 + density=0.5 always fires (precedence)", () => {
-  // bit-tap takes precedence over density: an on-bit MUST fire regardless
-  // of the density draw outcome. Run a few steps; every one is active.
-  const host = makeHost({
-    seed: 1,
-    length: 8,
-    density: 0.5,
-    lock: 1.0, // freeze register so bit0 stays 1 across cycle
-    rangeLo: 60,
-    rangeHi: 60, // single-note range for simplicity
-  });
   host.setBit(0, 1);
-  // With lock=1 the register cycles; bit0 may or may not stay 1 across
-  // steps depending on the cycle. Just verify the FIRST step (where we
-  // forced bit0=1) fires.
   const events = host.step(0);
   const noteOns = events.filter((e) => e.type === "noteOn");
   assert.equal(noteOns.length, 1);
 });
 
-// ── ADR 003 §TM output mode (host-layer dispatch) ────────────────────────────
-
-test("default mode is 'note' — pitch from regValue, velocity = outputVelocity", () => {
-  // Default mode preserves legacy behavior: mapToNote(regValue, range) +
-  // static velocity from outputVelocity.
-  assert.equal(DEFAULT_PARAMS.mode, "note");
-  const host = makeHost({
-    seed: 1,
-    length: 8,
-    lock: 1.0,
-    density: 1.0,
-    rangeLo: 60,
-    rangeHi: 72,
-    outputVelocity: 100,
-    mode: "note",
-  });
+test("bit-tap: bit0=1 + density=0 silent (gate closed even on on-bit)", () => {
+  // density=0 closes the gate on every step. Under the new && semantic
+  // even an on-bit is silent; the user gets a frozen loop with no audio,
+  // which is the natural "mute" extreme of the rhythmic-thinning knob.
+  const host = makeHost({ seed: 1, length: 8, density: 0.0, lock: 1.0 });
   host.setBit(0, 1);
   const events = host.step(0);
-  const noteOn = events.find((e) => e.type === "noteOn");
-  assert.ok(noteOn);
-  assert.equal(noteOn.velocity, 100);
-  // Pitch is in [60, 72] (range)
-  assert.ok(noteOn.pitch >= 60 && noteOn.pitch <= 72);
-});
-
-test("mode='gate' — pitch fixed at midpoint of range, velocity = outputVelocity", () => {
-  // ADR 003: gate mode pins pitch to midpoint of [rangeLo, rangeHi].
-  const host = makeHost({
-    seed: 1,
-    length: 8,
-    lock: 1.0,
-    density: 1.0,
-    rangeLo: 60,
-    rangeHi: 72,
-    outputVelocity: 100,
-    mode: "gate",
-  });
-  host.setBit(0, 1);
-  const events = host.step(0);
-  const noteOn = events.find((e) => e.type === "noteOn");
-  assert.ok(noteOn);
-  assert.equal(noteOn.pitch, Math.floor((60 + 72) / 2)); // 66
-  assert.equal(noteOn.velocity, 100);
-});
-
-test("mode='velocity' — pitch from regValue, velocity scaled by regFraction", () => {
-  // ADR 003: velocity mode maps regValue to MIDI via the inboil curve
-  //   v_norm = 0.3 + frac * 0.7   (inboil 0.3..1.0)
-  //   v_midi = floor(v_norm * outputVelocity)
-  // Uses outputVelocity as the cap so users can set a ceiling.
-  const host = makeHost({
-    seed: 1,
-    length: 8,
-    lock: 1.0,
-    density: 1.0,
-    rangeLo: 60,
-    rangeHi: 72,
-    outputVelocity: 100,
-    mode: "velocity",
-  });
-  // Set the register so its fraction is predictable. With length=8,
-  // an all-zero register (after setBit clears) has frac=0 → vel=30.
-  for (let i = 0; i < 8; i++) host.setBit(i, 0);
-  host.setBit(0, 1); // bit0=1, register=0x01, frac = 1/255
-  const events = host.step(0);
-  const noteOn = events.find((e) => e.type === "noteOn");
-  assert.ok(noteOn);
-  // frac = 1/255 ≈ 0.00392; v_norm = 0.3 + 0.00392 * 0.7 ≈ 0.30274
-  // v_midi = floor(0.30274 * 100) = 30
-  assert.equal(noteOn.velocity, 30);
-  // Pitch from regValue (small frac → near rangeLo)
-  assert.equal(noteOn.pitch, 60);
-});
-
-test("mode='velocity' — all-ones register gives velocity = outputVelocity", () => {
-  // frac = 1.0 (all bits set) → v_norm = 1.0 → v_midi = outputVelocity
-  const host = makeHost({
-    seed: 1,
-    length: 8,
-    lock: 1.0,
-    density: 1.0,
-    rangeLo: 60,
-    rangeHi: 72,
-    outputVelocity: 100,
-    mode: "velocity",
-  });
-  for (let i = 0; i < 8; i++) host.setBit(i, 1);
-  const events = host.step(0);
-  const noteOn = events.find((e) => e.type === "noteOn");
-  assert.ok(noteOn);
-  assert.equal(noteOn.velocity, 100);
-});
-
-test("setParam mode — updates dispatch behavior", () => {
-  // Switching mode during a session must take effect on the next step.
-  const host = makeHost({
-    seed: 1,
-    length: 8,
-    lock: 1.0,
-    density: 1.0,
-    rangeLo: 60,
-    rangeHi: 72,
-    outputVelocity: 100,
-    mode: "note",
-  });
-  host.setBit(0, 1);
-  host.setParam("mode", "gate");
-  const events = host.step(0);
-  const noteOn = events.find((e) => e.type === "noteOn");
-  assert.ok(noteOn);
-  assert.equal(noteOn.pitch, 66, "gate mode must use midpoint pitch");
+  const noteOns = events.filter((e) => e.type === "noteOn");
+  assert.equal(noteOns.length, 0);
 });
 
 test("step gate mode without held input — silent and frozen", () => {
@@ -282,6 +176,7 @@ test("step gate mode without held input — silent and frozen", () => {
 
 test("step gate mode with held input — advances normally", () => {
   const host = makeHost({ triggerMode: "gate", seed: 1, length: 8, density: 1.0 });
+  host.setBit(0, 1); // bit-tap gate needs LSB=1 for density=1 to fire
   const reg0 = host.getRegister();
   host.noteIn(60, 100, 1);
   const events = host.step(0);
@@ -565,7 +460,11 @@ test("setBit — valid in every triggerMode", () => {
   }
 });
 
-test("output range single-note (lo == hi) — note always lo", () => {
+test("output range single-note (lo == hi) — every fired step plays lo", () => {
+  // With rangeLo == rangeHi, mapToNote is pinned to that single pitch.
+  // Under bit-tap (vst spec 2026-05-16), whether a step fires depends on
+  // bit0 of the live register, so we don't assert "every step fires" —
+  // we assert "every step that DOES fire plays exactly pitch 60."
   const host = makeHost({
     seed: 1,
     length: 8,
@@ -574,10 +473,36 @@ test("output range single-note (lo == hi) — note always lo", () => {
     rangeLo: 60,
     rangeHi: 60,
   });
-  for (let i = 0; i < 8; i++) {
+  let fired = 0;
+  for (let i = 0; i < 16; i++) {
     const events = host.step(i);
     const noteOns = events.filter((e) => e.type === "noteOn");
-    assert.equal(noteOns.length, 1);
-    assert.equal(noteOns[0].pitch, 60, `step ${i}`);
+    for (const n of noteOns) {
+      assert.equal(n.pitch, 60, `step ${i} pitch must be 60`);
+      fired++;
+    }
   }
+  // lock=0 walks the register randomly; over 16 steps at least one bit0=1
+  // is overwhelmingly likely. Guard against accidental all-silent runs.
+  assert.ok(fired > 0, "at least one fire expected over 16 walked steps");
+});
+
+test("getLastEmittedRegister — snapshots pre-shift register at step time", () => {
+  // The anticipation ring (jsui) reads this snapshot so the bit at the
+  // playhead is the LSB the listener just heard. After step(), the live
+  // register has advanced via shiftAndFlip but lastEmittedRegister still
+  // holds the pre-shift value.
+  const host = makeHost({ seed: 1, length: 8, lock: 1.0 });
+  const preShift = host.getRegister();
+  host.step(0);
+  assert.equal(host.getLastEmittedRegister(), preShift);
+  // Live register advanced
+  assert.notEqual(host.getRegister(), preShift);
+});
+
+test("getLastEmittedRegister — initial value equals fresh-from-seed register", () => {
+  // Before any step has run, the snapshot must already hold a coherent
+  // register so the renderer has something to draw on first paint.
+  const host = makeHost({ seed: 42, length: 8 });
+  assert.equal(host.getLastEmittedRegister(), host.getRegister());
 });

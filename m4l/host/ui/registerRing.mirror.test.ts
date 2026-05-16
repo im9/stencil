@@ -101,22 +101,11 @@ test("renderer is ASCII-only (Max classic JS parser constraint)", () => {
   }
 });
 
-test("renderer declares the message handlers the bridge emits", () => {
-  // The bridge (bridge.ts) emits `register` and `ringHead` outlets via
-  // emitOutlet. The renderer must dispatch those names. Cheap text check:
-  // a typo on either side breaks the link silently in Live, so catch it
-  // here before manual verification time.
-  //
-  // The outlet name is `ringHead` (NOT `position`): `position` is a
-  // Max box-level attribute name and a [jsui] inlet receiving such a
-  // message gets repositioned by Max's attribute parser, causing a
-  // 1px-per-message creep visible in M4L locked view (verified
-  // empirically 2026-05-03 via wire-cut isolation). See bridge.ts
-  // emitOutlet ringHead call site for full context.
+test("renderer declares the message handler the bridge emits", () => {
+  // The bridge emits `register` (the pre-shift snapshot) via emitOutlet
+  // on every step. The renderer must dispatch that name. Cheap text
+  // check: a typo on either side breaks the link silently in Live.
   assert.match(RENDERER_SRC, /msg === ['"]register['"]/);
-  assert.match(RENDERER_SRC, /msg === ['"]ringHead['"]/);
-  // ADR 003 §Active-step flash — bridge emits triggerFlash 0|1 per step
-  assert.match(RENDERER_SRC, /msg === ['"]triggerFlash['"]/);
 });
 
 test("renderer emits the setBit message the bridge handles", () => {

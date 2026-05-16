@@ -156,10 +156,10 @@ designed-around. The original "TM output modes" framing (`note` /
 `gate` / `velocity`, [archived ADR 003][adr3]) was wrong: a MIDI note
 event is a single tuple `(pitch, velocity, gate)` and the modes
 treated those attributes as mutually exclusive dispatch branches.
-The vst spec corrects this: every step emits one note whose pitch
-is reg-derived, velocity and gate are constant slider values.
-ADR 007 §Output is the live spec; m4l still implements the old
-mode dispatch and will follow.
+ADR 007 §Output corrected this for vst (2026-05-15) and m4l caught
+up to the single-dispatch spec (2026-05-16): every step emits one
+note whose pitch is reg-derived, velocity and gate are constant
+slider values.
 
 [adr3]: adr/archive/003-m4l-ui-design.md
 

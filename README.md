@@ -12,19 +12,22 @@ again as `lock` is loosened.
 
 ## What it does
 
-On each host step, Stencil reads its **shift register** as an integer,
-maps the value into a user-set MIDI note range, emits the note with
-probability `density`, then shifts the register one position — the bit
-cycling out is flipped with probability `1 - lock` before being
-reinserted at the head.
+On each host step, Stencil reads the LSB of its **shift register** —
+if it's `1` (visually an on-bit at the playhead) the gate considers
+firing with probability `density`; if it's `0` (off-bit) the step is
+always silent. When the gate opens, Stencil maps the register's value
+into a user-set MIDI note range and emits the note. It then shifts the
+register one position — the bit cycling out is flipped with probability
+`1 - lock` before being reinserted at the head.
 
 User parameters:
 
 - **length** — register width sets loop length
 - **lock** — stability of the loop. `1.0` = perfect loop; `0.0` = pure
   noise; `0.95` is the classic slowly-evolving-pattern sweet spot
-- **density** — per-step note-emission probability; controls hole
-  pattern in the rhythm without shifting timing
+- **density** — gate probability for on-bits. `1.0` (default) plays
+  every on-bit; lower values thin the rhythm stochastically. Off-bits
+  are always silent (visual contract: white = no sound)
 - **lo / hi** — MIDI note range the register output is mapped into
 - **triggerMode** — `auto` (transport-driven), `gate` (advance only
   while a key is held), `seed` (incoming `noteOn` / `noteOff` writes
