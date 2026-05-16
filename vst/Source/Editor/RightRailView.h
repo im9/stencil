@@ -1,7 +1,8 @@
 // Right-rail fieldset stack (ADR 007 §Editor layout). 280 px fixed
-// width; vertical stack of five fieldsets — Parameters, Mode, Output,
+// width; vertical stack of four fieldsets — Parameters, Output,
 // Trigger, Reproducibility — each with APVTS attachments to the
-// 13 canonical parameters from concept.md.
+// 12 canonical parameters from concept.md (post 2026-05-15 `mode`
+// removal).
 //
 // Owns its own juce::Viewport so the fieldsets can scroll if the
 // fieldset stack outgrows the editor's vertical budget (e.g. when the
@@ -58,13 +59,6 @@ private:
     juce::Slider lengthSlider_, lockSlider_, densitySlider_;
     std::unique_ptr<SliderAttachment> lengthAtt_, lockAtt_, densityAtt_;
 
-    // ── Mode (radio pills) ────────────────────────────────────────
-    // Full lower-case names: the pill row has plenty of horizontal
-    // budget (≈80 px per pill at default size), so the inboil-style
-    // 3-letter abbreviation just sacrificed legibility for no gain.
-    std::array<juce::TextButton, 3> modePills_{
-        juce::TextButton{ "note" }, juce::TextButton{ "gate" }, juce::TextButton{ "vel" } };
-
     // ── Output ────────────────────────────────────────────────────
     juce::Slider rangeLoSlider_, rangeHiSlider_;
     juce::Slider outputVelocitySlider_, outputGateSlider_, outputChannelSlider_;
@@ -107,7 +101,6 @@ private:
 
     // Inboil-style fieldset metric: legend row + N controls × rowHeight.
     int paramsHeight_ = 0;
-    int modeHeight_ = 0;
     int outputHeight_ = 0;
     int triggerHeight_ = 0;
     int reproHeight_ = 0;
@@ -116,7 +109,6 @@ private:
     // resized() and read by paintContent(). Decoupled so paintContent
     // never has to recompute the layout sequence.
     int paramsFrameY_ = 0;
-    int modeFrameY_ = 0;
     int outputFrameY_ = 0;
     int triggerFrameY_ = 0;
     int reproFrameY_ = 0;

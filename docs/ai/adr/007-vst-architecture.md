@@ -39,6 +39,19 @@ annotated as vst-APVTS count; §MIDI processing intro reworded
 around `audio.clear()`; ROLL seeding switched to `juce::Random`
 across `RingView` / `ActionsView` / `RightRailView`; dead
 `pollTimer_` field removed from `RightRailView.h`.
+**Revised**: 2026-05-15 — `mode` parameter and per-mode dispatch
+removed. The original `note` / `gate` / `velocity` modes (inherited
+from inboil and ADR 003) treated the three attributes of a MIDI
+note event (pitch, velocity, gate) as mutually exclusive dispatch
+branches, which doesn't reflect what a MIDI note actually is.
+A MIDI note carries all three attributes simultaneously; the
+register supplies the *varying* aspect (pitch from `mapToNote`)
+while `outputVelocity` and `outputGate` set the constant
+attributes. §Parameter surface drops the `mode` row; §MIDI
+processing step 5 simplifies (no per-mode branch); §Output modes
+section replaced by §Output (single dispatch). m4l v1.0 still
+ships the old mode dispatch; spec divergence is intentional and
+m4l will follow.
 
 This ADR specifies the `vst/` target's architecture: the plugin formats
 shipped, the C++17 source layout (`Engine` / `Plugin` / `Editor`), the
@@ -129,15 +142,12 @@ The inboil layout (port verbatim in spirit):
 │        │           ▲             │      │ │ LOCK ▭▭ 0.18 │ │
 │        │      (head bit         │      │ │ DENS ▭▭ 0.38 │ │
 │        │       salmon)          │      │ └───────────────┘ │
-│        │  ◯  ◯       ●  ◯       │      │ ┌─Mode──────────┐ │
-│        │     bit ring           │      │ │ NOT GAT VEL   │ │
-│        │  ●  0.83 / E6   ◯      │      │ │ bits → pitch  │ │
-│        │     ◯  ◯  ◯  ◯         │      │ └───────────────┘ │
-│        │                        │      │ ┌─Output────────┐ │
-│        └────────────────────────┘      │ │ RANGE 48..72  │ │
-│                                        │ │ VEL 100  GT.5 │ │
-│                                        │ │ SUBDIV 16th   │ │
-│                                        │ └───────────────┘ │
+│        │  ◯  ◯       ●  ◯       │      │ ┌─Output────────┐ │
+│        │     bit ring           │      │ │ RANGE 48..72  │ │
+│        │  ●  0.83 / E6   ◯      │      │ │ VEL 100  GT.5 │ │
+│        │     ◯  ◯  ◯  ◯         │      │ │ SUBDIV 16th   │ │
+│        │                        │      │ └───────────────┘ │
+│        └────────────────────────┘      │                   │
 │                                        │ ┌─Trigger───────┐ │
 │                                        │ │ AUTO GATE SEED│ │
 │                                        │ │ IN CH  0(omni)│ │
@@ -152,9 +162,10 @@ The inboil layout (port verbatim in spirit):
 
 inboil's `Target` fieldset (MERGE/REPLACE/FILL + TRACK + PRESET) is
 inboil-internal scene-graph routing — not applicable to a DAW-native
-MIDI plugin. Stencil's right rail keeps Parameters + Mode and adds
-Output / Trigger / Reproducibility fieldsets that map to the
-canonical parameter surface in [concept.md][concept-params].
+MIDI plugin. Stencil's right rail keeps Parameters and adds Output /
+Trigger / Reproducibility fieldsets that map to the canonical
+parameter surface in [concept.md][concept-params]. (inboil's Mode
+fieldset is dropped — see 2026-05-15 revision in Status block.)
 
 inboil palette tokens used by the renderer (sourced from
 `~/src/front/inboil/src/app.css`):
@@ -323,7 +334,6 @@ table that m4l's `live.*` set was derived from.
 | `rangeHi`        | `AudioParameterInt`   | `0..127`                                | `72`     | —     |
 | `subdivision`    | `AudioParameterChoice`| `8th, 16th, 32nd, 8T, 16T`              | `16th`   | —     |
 | `seed`           | `AudioParameterInt`   | `0..2^31-1`                             | `42`     | —     |
-| `mode`           | `AudioParameterChoice`| `note, gate, velocity`                  | `note`   | —     |
 | `triggerMode`    | `AudioParameterChoice`| `auto, gate, seed`                      | `auto`   | —     |
 | `inputChannel`   | `AudioParameterInt`   | `0..16` (`0` = omni)                    | `0`      | —     |
 | `outputVelocity` | `AudioParameterInt`   | `1..127`                                | `100`    | —     |
@@ -343,7 +353,7 @@ APVTS sliders move continuously and need the other endpoint to
 track. Both shapes preserve `lo ≤ hi`; the difference is which
 endpoint the user observes "moving on its own" after a crossing.
 
-`AudioParameterChoice` is the right type for `subdivision` / `mode` /
+`AudioParameterChoice` is the right type for `subdivision` /
 `triggerMode` (CLAP and AU both surface choice params correctly).
 
 ### MIDI processing
@@ -380,22 +390,21 @@ Per-block:
    PPQ tick to a subdivision index using
    `subdivision_per_quarter[subdivision]` and emit step events at
    sample-accurate offsets within the buffer.
-5. Each step event (when not silenced by `gate` mode):
-   a. Read `reg`. Compute the per-mode `(note, velocity)` pair (see
-      §Output modes below).
+5. Each step event (when not silenced by `triggerMode = gate` with
+   no held input):
+   a. Read `reg`. Compute the single output tuple `(note, velocity)`
+      (see §Output below).
    b. Draw one u32 from `rng` for the density decision (always
       consumed, regardless of bit-tap outcome).
    c. **Bit-tap active**:
       `active = ((reg & 1) == 1) || (densityDraw < probabilityThreshold(density))`.
       The LSB at the read head is the primary trigger (always fires
       when set); density draws fill in on the empty bits. This
-      diverges from inboil's mode-dispatched mix
-      (`note` mode uses `regValue > (1-density) * 0.5`, while
-      `gate` and `velocity` modes use `rng() < density`); Stencil
-      uses bit-tap for *all* modes so the LSB at the read head
-      remains audibly the primary rhythmic driver and `density`
-      remains a uniform "empty-bit fill" knob across modes.
-   d. If `active`, schedule the `(note, velocity)` noteOn at the
+      diverges from inboil's active rule
+      (`regValue > (1-density) * 0.5`) — Stencil uses bit-tap so the
+      LSB at the read head is audibly the primary rhythmic driver
+      and `density` is a "empty-bit fill" probability.
+   d. If `active`, schedule `(note, velocity)` as a noteOn at the
       subdivision sample offset and the matching noteOff at
       `outputGate × stepDuration` later (clipped to the next step
       boundary).
@@ -408,40 +417,32 @@ Per-block:
 
 [adr2-tm]: archive/002-m4l-architecture.md
 
-#### Output modes
+#### Output
 
-`mode` parameter controls how each step's `(note, velocity)` pair is
-computed from `reg` and the parameter set. All three modes share the
-same active-decision and rng-advance flow above; only the
-`(note, velocity)` mapping differs.
+Every active step emits one noteOn carrying the full `(pitch,
+velocity, gate)` tuple. A MIDI note event has these three attributes
+simultaneously; Stencil does not branch on a "mode" parameter that
+picks one attribute to vary while pinning the others. The register
+supplies the varying aspect (pitch); `outputVelocity` and
+`outputGate` are constant per step.
 
-| Mode       | `note`                                    | `velocity`                                                          |
-|------------|-------------------------------------------|---------------------------------------------------------------------|
-| `note`     | `mapToNote(reg, length, rangeLo, rangeHi)` | `outputVelocity`                                                    |
-| `gate`     | `floor((rangeLo + rangeHi) / 2)`          | `outputVelocity`                                                    |
-| `velocity` | `mapToNote(reg, length, rangeLo, rangeHi)` | `clamp1to127(floor((0.3 + frac × 0.7) × outputVelocity))`           |
+| Attribute  | Source                                        |
+|------------|-----------------------------------------------|
+| `pitch`    | `mapToNote(reg, length, rangeLo, rangeHi)`    |
+| `velocity` | `outputVelocity` (slider value, 1..127)       |
+| `gate`     | `outputGate × stepDuration` (slider × tempo)  |
 
-where `frac = registerToFraction(reg, length).num /
-registerToFraction(reg, length).den` (computed in float for the
-velocity dispatch path; mapToNote's integer path is unaffected).
+The earlier `note` / `gate` / `velocity` dispatch (inherited from
+inboil via ADR 003) is removed for vst as of the 2026-05-15
+revision. The old `gate` mode's "pitch = range midpoint" is
+recoverable by setting `rangeLo == rangeHi`. The old `velocity`
+mode's "velocity = (0.3 + frac × 0.7) × outputVelocity" is dropped
+without replacement — bit-pattern velocity modulation is a future
+extension if the musical need re-emerges.
 
-The "gate = range midpoint" choice is a rhythmic-articulation framing:
-the user sets a melodic range for `note`/`velocity` modes, but
-switching to `gate` repurposes that same range as a rhythm-only mode
-where the choice of pitch is incidental — the midpoint is a stable,
-audible default.
-
-The "velocity 0.3 + frac × 0.7" formula clamps the lowest output
-velocity to 30 % of `outputVelocity` (so the loop is always audible)
-and lets the bit-pattern modulate the upper 70 % of dynamic range.
-
-These mappings are taken from m4l's `host-tm/host.ts` (steps 142-172
-of the live reference) and must stay byte-identical with the m4l
-target — they are the spec, not a target-specific embellishment.
-[concept.md §Future extensions][concept-future] notes the three modes
-are part of the canonical surface, not deferred.
-
-[concept-future]: ../concept.md#future-extensions
+m4l v1.0 still ships the inboil-style mode dispatch; this is the
+only intentional cross-target divergence as of 2026-05-15 and
+will be reconciled when m4l catches up to the vst spec.
 
 #### Note-off discipline
 
@@ -452,7 +453,7 @@ Required hung-note paths (every one of these flushes
 - bypass enable
 - preset / state load (`setStateInformation`)
 - parameter change to `length` / `seed` / `range` / `subdivision` /
-  `mode` / `outputChannel`
+  `outputChannel`
 - explicit `panic` (all-notes-off CC 123 on every channel)
 
 The tracker lives in `Sequencer` (engine layer) so this logic is
@@ -472,7 +473,6 @@ PluginEditor (top-level)
 │   │   └── CenterText  (fraction "0.83" + note "E6")
 │   └── RightRailView (280px fixed; vertical fieldset stack)
 │       ├── Parameters (LEN, LOCK, DENS)
-│       ├── Mode       (NOT/GAT/VEL pills + description)
 │       ├── Output     (RANGE lo/hi, VEL, GATE, SUBDIV)
 │       ├── Trigger    (AUTO/GATE/SEED pills, IN CH)
 │       └── Reproducibility (SEED + reroll button)
@@ -589,12 +589,12 @@ truth for MIDI emission.
 
 APVTS is the single source of truth for persisted state.
 `getStateInformation` / `setStateInformation` serialize the APVTS
-`ValueTree` (XML inside the `MemoryBlock`) including all 13
-parameters above. The "13" is the vst APVTS count: it splits
-[concept.md §Parameter surface][concept-params]'s 11 canonical
-items by exposing `range` as `rangeLo` / `rangeHi` separately
-(host automation needs distinct IDs) and adds the m4l-shared
-`outputChannel` for MIDI routing.
+`ValueTree` (XML inside the `MemoryBlock`) including all 12
+parameters above. The "12" is the vst APVTS count: it splits
+[concept.md §Parameter surface][concept-params]'s 10 canonical
+items (post 2026-05-15 `mode` removal) by exposing `range` as
+`rangeLo` / `rangeHi` separately (host automation needs distinct
+IDs) and adds the m4l-shared `outputChannel` for MIDI routing.
 
 Non-persisted state (intentional):
 
@@ -876,16 +876,20 @@ Best-effort (load + smoke; not blocking for v1):
 
 ### Functional correctness (manual)
 
-- [ ] **All 13 parameters** are visible in each host's parameter
-      list and persist across save/reload.
+- [ ] **All 12 parameters** are visible in each host's parameter
+      list and persist across save/reload. (Was 13 before the
+      2026-05-15 `mode` removal.)
 - [ ] **Cross-target audible parity** — load `Stencil.amxd` (m4l)
       and `Stencil.vst3` with identical `(seed, length, lock,
       density, range, subdivision)`. Run both at 120 BPM through
-      the same synth. Output matches by ear and event-by-event in
-      a clip recording.
-- [ ] **Output modes** — `note` (default pitch from bits), `gate`
-      (on/off only at lowest range note), `velocity` (varying
-      velocity). Each verified audibly.
+      the same synth. Pitch sequence must match. *(Velocity / gate
+      shape will diverge until m4l drops mode dispatch; only pitch
+      parity is in scope.)*
+- [ ] **Output single-dispatch** — every active step emits one
+      noteOn with `pitch = mapToNote(reg, range)`,
+      `velocity = outputVelocity`, `gate = outputGate × stepDur`.
+      Verified audibly with a fixed-pitch test (set `rangeLo ==
+      rangeHi`) and a varying-pitch test (`rangeLo < rangeHi`).
 - [ ] **Trigger modes** — `auto` (transport-driven), `gate` (key-
       held), `seed` (input notes seed register). Each verified
       with input MIDI in the chosen host.
@@ -939,10 +943,13 @@ Tag legend: `(code, vst)` / `(code, m4l)` / `(doc)`.
       just-emitted bit at index 0 in salmon when shiftAndFlip flipped
       the consumed LSB, with the post-`d87f97b` pre-shift snapshot
       semantics.)*
-- [ ] **`m4l` `setParam` flush misses `mode` + `outputChannel`** (code,
-      m4l) — vst now flushes on these (this ADR's hung-note discipline
-      fix); m4l-side `host.ts:setParam`'s `flushKeys` array still
-      omits both. Symmetrize.
+- [ ] **`m4l` `setParam` flush misses `outputChannel`** (code, m4l)
+      — vst flushes on `outputChannel` (this ADR's hung-note
+      discipline fix); m4l-side `host.ts:setParam`'s `flushKeys`
+      array omits it. Symmetrize. *(2026-05-15: `mode` removed
+      from this item — the parameter no longer exists vst-side;
+      m4l will drop it when it catches up to the single-dispatch
+      spec.)*
 - [x] **`rangeLo` / `rangeHi` clamp direction differs target-to-target**
       (doc) — vst clamps the *other* side (APVTS UX expects
       not-just-moved side to follow); m4l clamps the side the user

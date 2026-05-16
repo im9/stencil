@@ -150,8 +150,14 @@ Clarifying scope by exclusion:
 ## Future extensions
 
 Listed so the surface stays small and these don't get quietly
-designed-around. TM output modes (`note` / `gate` / `velocity`,
-[archived ADR 003][adr3]) are shipped — those are no longer "future".
+designed-around. The original "TM output modes" framing (`note` /
+`gate` / `velocity`, [archived ADR 003][adr3]) was wrong: a MIDI note
+event is a single tuple `(pitch, velocity, gate)` and the modes
+treated those attributes as mutually exclusive dispatch branches.
+The vst spec corrects this: every step emits one note whose pitch
+is reg-derived, velocity and gate are constant slider values.
+ADR 007 §Output is the live spec; m4l still implements the old
+mode dispatch and will follow.
 
 [adr3]: adr/archive/003-m4l-ui-design.md
 
@@ -176,7 +182,6 @@ routing specifics, GUI-only state) may be added per target.
 | `density`         | float `0..1`                  | active-step probability (default `1.0`)            |
 | `subdivision`     | `8th \| 16th \| 32nd \| 8T \| 16T` | step unit; default `16th`                     |
 | `seed`            | int                           | RNG seed for reproducibility                       |
-| `mode`            | `note \| gate \| velocity`    | output mode; default `note`                        |
 | `triggerMode`     | `auto \| gate \| seed`        | input handling; default `auto`                     |
 | `inputChannel`    | int `0..16`                   | MIDI input channel; `0` = omni; default `0`        |
 | `outputVelocity`  | int `1..127`                  | output note velocity; default `100`                |

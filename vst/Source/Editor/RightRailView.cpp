@@ -88,14 +88,6 @@ RightRailView::RightRailView(plugin::StencilProcessor& p)
     for (auto* s : { &lengthSlider_, &lockSlider_, &densitySlider_ })
         content_.addAndMakeVisible(*s);
 
-    // ── Mode pills ────────────────────────────────────────────────
-    for (int i = 0; i < (int) modePills_.size(); ++i) {
-        auto& b = modePills_[(std::size_t) i];
-        stylePill(b);
-        b.onClick = [this, i] { writeChoice(plugin::pid::mode, i); };
-        content_.addAndMakeVisible(b);
-    }
-
     // ── Output ────────────────────────────────────────────────────
     for (auto* s : { &rangeLoSlider_, &rangeHiSlider_,
                      &outputVelocitySlider_, &outputGateSlider_, &outputChannelSlider_ })
@@ -170,10 +162,6 @@ void RightRailView::writeChoice(const char* paramId, int idx)
 
 void RightRailView::refreshPills()
 {
-    const int modeIdx = (int) *processor_.getApvts().getRawParameterValue(plugin::pid::mode);
-    for (int i = 0; i < (int) modePills_.size(); ++i)
-        modePills_[(std::size_t) i].setToggleState(i == modeIdx, juce::dontSendNotification);
-
     const int trigIdx = (int) *processor_.getApvts().getRawParameterValue(plugin::pid::triggerMode);
     for (int i = 0; i < (int) triggerPills_.size(); ++i)
         triggerPills_[(std::size_t) i].setToggleState(i == trigIdx, juce::dontSendNotification);
@@ -283,24 +271,7 @@ void RightRailView::paintContent(juce::Graphics& g) const
         drawRowValue(g, valX, rowY(2, fy), kValueColW, rh, fmtFloat2(a, plugin::pid::density));
     }
 
-    // 2. Mode (legend only — pills are full-width, value column unused).
-    // Mode-descriptor line below the pill row maps the active mode to
-    // a one-line semantic hint (matches inboil .mode-desc).
-    {
-        const int fy = modeFrameY_;
-        drawFieldsetFrame(g, { frameX, fy, frameW, modeHeight_ }, "Mode");
-        const int modeIdx = static_cast<int>(*a.getRawParameterValue(plugin::pid::mode));
-        const char* desc = (modeIdx == 0) ? "bits \xE2\x86\x92 pitch"
-                         : (modeIdx == 1) ? "bits \xE2\x86\x92 on / off"
-                         :                  "bits \xE2\x86\x92 velocity";
-        g.setColour(theme::fgAlpha(0.4f));
-        g.setFont(theme::dataFont(theme::fsSm, false));
-        g.drawText(juce::String::fromUTF8(desc),
-                   innerXv, rowY(1, fy), innerW, rh,
-                   juce::Justification::centredLeft);
-    }
-
-    // 3. Output
+    // 2. Output
     // Row 0 is a "RANGE" sub-heading; rows 1-2 are the LO / HI sliders
     // sharing the same label column as VEL / GATE / SUBDIV below.
     {
@@ -356,12 +327,9 @@ void RightRailView::resized()
     const int gap = theme::rowGap;
     const int legendH = static_cast<int>(theme::fsSm) + 4;
 
-    // Per-fieldset heights. Mode now has 2 rows (pill row + descriptor)
-    // so the layout includes the inboil-parity `bits → pitch` hint.
-    // Output gains a "RANGE" sub-heading row above LO / HI, so it's 6
-    // rows total (RANGE, LO, HI, VEL, GATE, SUBDIV).
+    // Per-fieldset heights. Output has 6 rows total: RANGE sub-heading
+    // plus LO, HI, VEL, GATE, SUBDIV.
     paramsHeight_  = legendH + rh * 3 + gap * 2 + theme::groupPadY * 2;
-    modeHeight_    = legendH + rh * 2 + gap * 1 + theme::groupPadY * 2;
     outputHeight_  = legendH + rh * 6 + gap * 5 + theme::groupPadY * 2;
     triggerHeight_ = legendH + rh * 2 + gap * 1 + theme::groupPadY * 2;
     reproHeight_   = legendH + rh * 1 + theme::groupPadY * 2;
@@ -385,18 +353,6 @@ void RightRailView::resized()
         lockSlider_   .setBounds(sliderX, rowY(1, y), sliderW, rh);
         densitySlider_.setBounds(sliderX, rowY(2, y), sliderW, rh);
         y += paramsHeight_ + theme::groupGap;
-    }
-
-    // ── Mode ──────────────────────────────────────────────────────
-    // Pills span the full innerW (no left label); descriptor occupies
-    // row 1 inside paint().
-    {
-        modeFrameY_ = y;
-        const int row = rowY(0, y);
-        const int pillW = (innerW - 2 * kColGap) / 3;
-        int x = innerX;
-        for (auto& b : modePills_) { b.setBounds(x, row, pillW, rh); x += pillW + kColGap; }
-        y += modeHeight_ + theme::groupGap;
     }
 
     // ── Output (RANGE sub-heading, LO, HI, VEL, GATE, SUBDIV) ─────

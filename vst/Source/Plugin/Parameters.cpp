@@ -49,10 +49,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout makeParameterLayout()
         0, std::numeric_limits<juce::int32>::max(), defaults::seed));
 
     layout.add(std::make_unique<APC>(
-        PID{ pid::mode, kParamVersion }, "Mode",
-        modeChoices, defaults::modeIdx));
-
-    layout.add(std::make_unique<APC>(
         PID{ pid::triggerMode, kParamVersion }, "Trigger Mode",
         triggerModeChoices, defaults::triggerModeIdx));
 
@@ -93,8 +89,6 @@ engine::SequencerParams readParams(const juce::AudioProcessorValueTreeState& apv
     p.subdivision = static_cast<engine::Subdivision>(
         static_cast<int>(*apvts.getRawParameterValue(pid::subdivision)));
     p.seed = static_cast<uint32_t>(*apvts.getRawParameterValue(pid::seed));
-    p.mode = static_cast<engine::Mode>(
-        static_cast<int>(*apvts.getRawParameterValue(pid::mode)));
     p.triggerMode = static_cast<engine::TriggerMode>(
         static_cast<int>(*apvts.getRawParameterValue(pid::triggerMode)));
     p.inputChannel = static_cast<int>(*apvts.getRawParameterValue(pid::inputChannel));

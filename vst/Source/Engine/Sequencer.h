@@ -1,9 +1,10 @@
 #pragma once
 
 // Stencil Sequencer — transport-driven step machine and supporting utilities,
-// per ADR 007 §MIDI processing. Mirrors m4l/host/host.ts semantics:
+// per ADR 007 §MIDI processing + §Output (2026-05-15 revision):
 //   - bit-tap active (LSB primary trigger; density fills empty bits)
-//   - mode dispatch (note / gate=midpoint / velocity=0.3+frac×0.7)
+//   - single output dispatch: pitch = mapToNote(reg, range),
+//     velocity = outputVelocity, gate = outputGate × stepDur
 //   - triggerMode branches (auto / gate-with-held-input / seed-with-freeze)
 //
 // All types are pure C++17 — no JUCE. Phase 2's PluginProcessor wraps these
@@ -32,13 +33,6 @@ enum class Subdivision
 
 double subdivisionsPerQuarter(Subdivision s);
 
-enum class Mode
-{
-    Note = 0,
-    Gate = 1,
-    Velocity = 2
-};
-
 enum class TriggerMode
 {
     Auto = 0,
@@ -57,7 +51,6 @@ struct SequencerParams
     int rangeHi = 72;                                        // ≥ rangeLo
     Subdivision subdivision = Subdivision::Sixteenth;
     uint32_t seed = 42;                                      // u31 in concept.md
-    Mode mode = Mode::Note;
     TriggerMode triggerMode = TriggerMode::Auto;
     int inputChannel = 0;                                    // 0 = omni
     int outputVelocity = 100;                                // 1..127

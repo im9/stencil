@@ -15,7 +15,7 @@ namespace
 // the others are listed solely for the flush.
 const char* const kFlushOnChangeParamIds[] = {
     pid::rangeLo, pid::rangeHi, pid::length, pid::seed,
-    pid::subdivision, pid::mode, pid::outputChannel
+    pid::subdivision, pid::outputChannel
 };
 }  // namespace
 

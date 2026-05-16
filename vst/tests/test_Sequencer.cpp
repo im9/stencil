@@ -1,6 +1,7 @@
-// Sequencer tests per ADR 007 Phase 1:
+// Sequencer tests per ADR 007 Phase 1 + 2026-05-15 §Output revision:
 //   - subdivisionsPerQuarter / detectBoundaries (PPQ → step events)
-//   - Sequencer mode dispatch (Note / Gate / Velocity)
+//   - Sequencer single output dispatch (pitch = mapToNote, velocity =
+//     outputVelocity; no per-mode branch — see 2026-05-15 Status block)
 //   - Sequencer triggerMode branches (Auto / Gate-no-input / Gate-with-input
 //     / Seed-pre-activation / Seed-post-activation)
 //   - Bit-tap active semantic (LSB primary trigger, density fills empties)
@@ -18,7 +19,6 @@
 
 using stencil::engine::createRegister;
 using stencil::engine::detectBoundaries;
-using stencil::engine::Mode;
 using stencil::engine::RegisterBits;
 using stencil::engine::RngState;
 using stencil::engine::seedRng;
@@ -159,25 +159,28 @@ TEST_CASE("Sequencer reset re-creates register from seed/length",
     CHECK(seq.getPosition() == 0);
 }
 
-// ─── Sequencer — mode dispatch (Note / Gate / Velocity) ────────────────────
+// ─── Sequencer — single output dispatch (ADR 007 §Output, 2026-05-15) ─────
 
-TEST_CASE("Sequencer mode=Note maps reg → pitch via mapToNote",
-          "[sequencer][mode][note]")
+TEST_CASE("Sequencer single dispatch: pitch from reg/range, velocity = outputVelocity",
+          "[sequencer][output]")
 {
+    // Justification: ADR 007 §Output (2026-05-15) — every active step
+    // emits one noteOn with `pitch = mapToNote(reg, range)` and
+    // `velocity = outputVelocity` (constant). The earlier per-mode
+    // dispatch (note/gate/velocity) was removed because a MIDI note
+    // event carries pitch + velocity + gate simultaneously, not as
+    // mutually exclusive branches.
     SequencerParams p;
     p.seed = 1;
     p.length = 8;
     p.lock = 1.0;       // freeze register
-    p.density = 1.0;    // always active so we can observe mode output
+    p.density = 1.0;    // always active so we can observe output
     p.rangeLo = 60;
     p.rangeHi = 72;
     p.outputVelocity = 100;
-    p.mode = Mode::Note;
 
     Sequencer seq(p);
     const RegisterBits reg = seq.getRegister();
-    // mapToNote of the initial register against [60,72]. We compare against
-    // the engine helpers directly to avoid duplicating arithmetic.
     const auto frac = stencil::engine::registerToFraction(reg, 8);
     const int expectedPitch = stencil::engine::mapToNote(frac.num, frac.den, 60, 72);
 
@@ -188,80 +191,53 @@ TEST_CASE("Sequencer mode=Note maps reg → pitch via mapToNote",
     CHECK(o.channel == p.outputChannel);
 }
 
-TEST_CASE("Sequencer mode=Gate emits range-midpoint pitch",
-          "[sequencer][mode][gate]")
+TEST_CASE("Sequencer single dispatch: rangeLo == rangeHi pins pitch (replaces old gate mode)",
+          "[sequencer][output]")
 {
+    // Justification: the deprecated `gate` mode emitted pitch =
+    // floor((lo + hi) / 2). With single dispatch, the same musical
+    // effect (fixed-pitch rhythmic articulation) is recoverable by
+    // setting `rangeLo == rangeHi` — mapToNote always returns that
+    // single value regardless of register state. Pins the design
+    // claim made in ADR 007 §Output that gate mode is recoverable
+    // via range collapse.
     SequencerParams p;
     p.seed = 1;
     p.length = 8;
     p.lock = 1.0;
     p.density = 1.0;
-    p.rangeLo = 48;
-    p.rangeHi = 72;
+    p.rangeLo = 60;
+    p.rangeHi = 60;
     p.outputVelocity = 100;
-    p.mode = Mode::Gate;
 
     Sequencer seq(p);
     const StepOutput o = seq.processStep();
     CHECK(o.active);
-    // Midpoint = floor((48 + 72) / 2) = 60.
     CHECK(o.note == 60);
     CHECK(o.velocity == 100);
 }
 
-TEST_CASE("Sequencer mode=Velocity scales velocity by 0.3 + frac × 0.7",
-          "[sequencer][mode][velocity]")
+TEST_CASE("Sequencer single dispatch: outputVelocity passes through verbatim",
+          "[sequencer][output]")
 {
-    SequencerParams p;
-    p.seed = 1;
-    p.length = 8;
-    p.lock = 1.0;
-    p.density = 1.0;
-    p.rangeLo = 60;
-    p.rangeHi = 72;
-    p.outputVelocity = 100;
-    p.mode = Mode::Velocity;
-
-    Sequencer seq(p);
-    const RegisterBits reg = seq.getRegister();
-    const auto f = stencil::engine::registerToFraction(reg, 8);
-    const double frac = static_cast<double>(f.num) / static_cast<double>(f.den);
-    const double vNorm = 0.3 + frac * 0.7;
-    int expectedVel = static_cast<int>(vNorm * 100);
-    if (expectedVel < 1) expectedVel = 1;
-    if (expectedVel > 127) expectedVel = 127;
-    const int expectedPitch = stencil::engine::mapToNote(f.num, f.den, 60, 72);
-
-    const StepOutput o = seq.processStep();
-    CHECK(o.active);
-    CHECK(o.note == expectedPitch);
-    CHECK(o.velocity == expectedVel);
-}
-
-TEST_CASE("Sequencer mode=Velocity floor of velocity is 30% of outputVelocity",
-          "[sequencer][mode][velocity]")
-{
-    // When register is all zeros, frac = 0 → vNorm = 0.3 → velocity should
-    // floor to 0.3 × outputVelocity = 30 (clamped to 1 if outputVelocity is
-    // small enough that floor would underflow).
-    SequencerParams p;
-    p.seed = 1;
-    p.length = 8;
-    p.lock = 1.0;
-    p.density = 1.0;
-    p.rangeLo = 60;
-    p.rangeHi = 72;
-    p.outputVelocity = 100;
-    p.mode = Mode::Velocity;
-
-    Sequencer seq(p);
-    // The active flag depends on bit-tap; force-test the velocity formula by
-    // poking via shiftAndForce at construction-time is complex. Instead,
-    // verify the formula at the API level: with non-zero register, velocity
-    // is at least 30% × outputVelocity.
-    const StepOutput o = seq.processStep();
-    if (o.active)
-        CHECK(o.velocity >= 30);  // 0.3 × 100, since frac ≥ 0
+    // Justification: 2026-05-15 removed the `velocity` mode's
+    // `(0.3 + frac × 0.7) × outputVelocity` scaling. Velocity is now
+    // the slider value directly, with no register-derived modulation.
+    // Spot-check at three slider values to pin the verbatim mapping.
+    for (int v : {1, 64, 127}) {
+        SequencerParams p;
+        p.seed = 1;
+        p.length = 8;
+        p.lock = 1.0;
+        p.density = 1.0;
+        p.rangeLo = 60;
+        p.rangeHi = 72;
+        p.outputVelocity = v;
+        Sequencer seq(p);
+        const StepOutput o = seq.processStep();
+        REQUIRE(o.active);
+        CHECK(o.velocity == v);
+    }
 }
 
 // ─── Sequencer — bit-tap active semantic ──────────────────────────────────
@@ -279,7 +255,6 @@ TEST_CASE("Sequencer bit-tap: density=0 + LSB=1 still fires",
     p.density = 0.0;  // density never fires alone
     p.rangeLo = 60;
     p.rangeHi = 72;
-    p.mode = Mode::Note;
 
     Sequencer seq(p);
     REQUIRE((seq.getRegister() & 1u) == 1u);  // sanity: LSB is 1 for this seed/length
@@ -303,7 +278,6 @@ TEST_CASE("Sequencer bit-tap: density=0 + LSB=0 → silent",
     p.density = 1.0;  // first step active so we can advance
     p.rangeLo = 60;
     p.rangeHi = 72;
-    p.mode = Mode::Note;
 
     Sequencer seq(p);
     // Find a step where, post-shift, the register's LSB is 0.
@@ -338,7 +312,6 @@ TEST_CASE("Sequencer triggerMode=Auto: every step processes",
     p.rangeLo = 60;
     p.rangeHi = 72;
     p.triggerMode = TriggerMode::Auto;
-    p.mode = Mode::Note;
 
     Sequencer seq(p);
     const int posBefore = seq.getPosition();
@@ -359,7 +332,6 @@ TEST_CASE("Sequencer triggerMode=Gate, no input: silent + register/rng frozen",
     p.rangeLo = 60;
     p.rangeHi = 72;
     p.triggerMode = TriggerMode::Gate;
-    p.mode = Mode::Note;
 
     Sequencer seq(p);
     const RegisterBits regBefore = seq.getRegister();
@@ -382,7 +354,6 @@ TEST_CASE("Sequencer triggerMode=Gate, with held input: processes normally",
     p.rangeLo = 60;
     p.rangeHi = 72;
     p.triggerMode = TriggerMode::Gate;
-    p.mode = Mode::Note;
     p.inputChannel = 0;       // omni
 
     Sequencer seq(p);
@@ -411,7 +382,6 @@ TEST_CASE("Sequencer triggerMode=Seed pre-activation: behaves like Auto",
     p.rangeLo = 60;
     p.rangeHi = 72;
     p.triggerMode = TriggerMode::Seed;
-    p.mode = Mode::Note;
 
     Sequencer seq(p);
     CHECK_FALSE(seq.isSeedActivated());

@@ -14,7 +14,6 @@
 #include "Plugin/Parameters.h"
 #include "Plugin/PluginProcessor.h"
 
-using stencil::engine::Mode;
 using stencil::engine::SequencerParams;
 using stencil::engine::Subdivision;
 using stencil::engine::TriggerMode;
@@ -58,7 +57,6 @@ TEST_CASE("APVTS layout has all 13 expected parameters", "[plugin][apvts]")
     REQUIRE(apvts.getParameter(pid::rangeHi)        != nullptr);
     REQUIRE(apvts.getParameter(pid::subdivision)    != nullptr);
     REQUIRE(apvts.getParameter(pid::seed)           != nullptr);
-    REQUIRE(apvts.getParameter(pid::mode)           != nullptr);
     REQUIRE(apvts.getParameter(pid::triggerMode)    != nullptr);
     REQUIRE(apvts.getParameter(pid::inputChannel)   != nullptr);
     REQUIRE(apvts.getParameter(pid::outputVelocity) != nullptr);
@@ -78,7 +76,6 @@ TEST_CASE("APVTS defaults match concept.md", "[plugin][apvts][defaults]")
     CHECK(static_cast<int>(*apvts.getRawParameterValue(pid::rangeHi))        == defaults::rangeHi);
     CHECK(static_cast<int>(*apvts.getRawParameterValue(pid::subdivision))    == defaults::subdivisionIdx);
     CHECK(static_cast<int>(*apvts.getRawParameterValue(pid::seed))           == defaults::seed);
-    CHECK(static_cast<int>(*apvts.getRawParameterValue(pid::mode))           == defaults::modeIdx);
     CHECK(static_cast<int>(*apvts.getRawParameterValue(pid::triggerMode))    == defaults::triggerModeIdx);
     CHECK(static_cast<int>(*apvts.getRawParameterValue(pid::inputChannel))   == defaults::inputChannel);
     CHECK(static_cast<int>(*apvts.getRawParameterValue(pid::outputVelocity)) == defaults::outputVelocity);
@@ -119,11 +116,6 @@ TEST_CASE("APVTS choice params expose correct option counts",
     REQUIRE(sub != nullptr);
     CHECK(sub->choices.size() == 5);  // 8th, 16th, 32nd, 8T, 16T
 
-    auto* mode = dynamic_cast<juce::AudioParameterChoice*>(
-        apvts.getParameter(pid::mode));
-    REQUIRE(mode != nullptr);
-    CHECK(mode->choices.size() == 3);  // note, gate, velocity
-
     auto* tm = dynamic_cast<juce::AudioParameterChoice*>(
         apvts.getParameter(pid::triggerMode));
     REQUIRE(tm != nullptr);
@@ -144,7 +136,6 @@ TEST_CASE("readParams maps APVTS into engine SequencerParams",
     CHECK(p.rangeHi        == defaults::rangeHi);
     CHECK(p.subdivision    == Subdivision::Sixteenth);
     CHECK(p.seed           == static_cast<uint32_t>(defaults::seed));
-    CHECK(p.mode           == Mode::Note);
     CHECK(p.triggerMode    == TriggerMode::Auto);
     CHECK(p.inputChannel   == defaults::inputChannel);
     CHECK(p.outputVelocity == defaults::outputVelocity);
@@ -200,16 +191,16 @@ TEST_CASE("getStateInformation / setStateInformation round-trip",
     auto* lockParam = apvts1.getParameter(pid::lock);
     auto* lengthParam = apvts1.getParameter(pid::length);
     auto* seedParam = apvts1.getParameter(pid::seed);
-    auto* modeParam = apvts1.getParameter(pid::mode);
+    auto* velParam = apvts1.getParameter(pid::outputVelocity);
     REQUIRE(lockParam != nullptr);
     REQUIRE(lengthParam != nullptr);
     REQUIRE(seedParam != nullptr);
-    REQUIRE(modeParam != nullptr);
+    REQUIRE(velParam != nullptr);
 
     lockParam->setValueNotifyingHost(lockParam->convertTo0to1(0.7f));
     lengthParam->setValueNotifyingHost(lengthParam->convertTo0to1(16.0f));
     seedParam->setValueNotifyingHost(seedParam->convertTo0to1(12345.0f));
-    modeParam->setValueNotifyingHost(modeParam->convertTo0to1(2.0f));  // velocity
+    velParam->setValueNotifyingHost(velParam->convertTo0to1(77.0f));
 
     // Serialize.
     juce::MemoryBlock block;
@@ -224,7 +215,7 @@ TEST_CASE("getStateInformation / setStateInformation round-trip",
     CHECK(*apvts2.getRawParameterValue(pid::lock)  == 0.7f);
     CHECK(static_cast<int>(*apvts2.getRawParameterValue(pid::length)) == 16);
     CHECK(static_cast<int>(*apvts2.getRawParameterValue(pid::seed))   == 12345);
-    CHECK(static_cast<int>(*apvts2.getRawParameterValue(pid::mode))   == 2);
+    CHECK(static_cast<int>(*apvts2.getRawParameterValue(pid::outputVelocity)) == 77);
 }
 
 // ─── processBlock dispatch ────────────────────────────────────────────────
@@ -560,21 +551,6 @@ TEST_CASE("length parameter change flushes pending noteOffs at next block",
 
     proc.getApvts().getParameter(pid::length)->setValueNotifyingHost(
         proc.getApvts().getParameter(pid::length)->convertTo0to1(16.0f));
-
-    fx.ph.position.setPpqPosition(juce::makeOptional(4096.0 / 24000.0));
-    const auto r = drainOneBlock(proc, 4096);
-    CHECK(r.noteOffCount >= 1);
-}
-
-TEST_CASE("mode parameter change flushes pending noteOffs at next block",
-          "[plugin][hung_note][param_change]")
-{
-    // ADR 007 §Note-off discipline lists mode as a flush trigger.
-    StencilProcessor proc;
-    LongGateFixture fx(proc);
-
-    proc.getApvts().getParameter(pid::mode)->setValueNotifyingHost(
-        proc.getApvts().getParameter(pid::mode)->convertTo0to1(1.0f));  // gate
 
     fx.ph.position.setPpqPosition(juce::makeOptional(4096.0 / 24000.0));
     const auto r = drainOneBlock(proc, 4096);

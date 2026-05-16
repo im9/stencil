@@ -22,7 +22,6 @@ inline constexpr const char* rangeLo        = "rangeLo";
 inline constexpr const char* rangeHi        = "rangeHi";
 inline constexpr const char* subdivision    = "subdivision";
 inline constexpr const char* seed           = "seed";
-inline constexpr const char* mode           = "mode";
 inline constexpr const char* triggerMode    = "triggerMode";
 inline constexpr const char* inputChannel   = "inputChannel";
 inline constexpr const char* outputVelocity = "outputVelocity";
@@ -31,11 +30,10 @@ inline constexpr const char* outputChannel  = "outputChannel";
 }  // namespace pid
 
 // Choice strings — ordered to match `engine::Subdivision` /
-// `engine::Mode` / `engine::TriggerMode` enum values one-to-one.
-// readParams() relies on this ordering; reordering would require a
-// migration shim in setStateInformation.
+// `engine::TriggerMode` enum values one-to-one. readParams() relies on
+// this ordering; reordering would require a migration shim in
+// setStateInformation.
 inline const juce::StringArray subdivisionChoices { "8th", "16th", "32nd", "8T", "16T" };
-inline const juce::StringArray modeChoices        { "note", "gate", "velocity" };
 inline const juce::StringArray triggerModeChoices { "auto", "gate", "seed" };
 
 // Defaults centralized for the round-trip test ("fresh instance has
@@ -49,7 +47,6 @@ inline constexpr int   rangeLo        = 48;
 inline constexpr int   rangeHi        = 72;
 inline constexpr int   subdivisionIdx = 1;     // "16th"
 inline constexpr int   seed           = 42;
-inline constexpr int   modeIdx        = 0;     // "note"
 inline constexpr int   triggerModeIdx = 0;     // "auto"
 inline constexpr int   inputChannel   = 0;     // omni
 inline constexpr int   outputVelocity = 100;

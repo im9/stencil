@@ -159,31 +159,14 @@ StepOutput Sequencer::processStep()
         return out;
 
     // Read register for output (read-then-shift per ADR 001).
+    // ADR 007 §Output (2026-05-15): single dispatch — pitch is reg-derived
+    // via mapToNote, velocity is the slider value verbatim. The earlier
+    // per-mode branch (note/gate/velocity) is removed; gate's "midpoint
+    // pitch" is recoverable by setting rangeLo == rangeHi, and velocity
+    // mode's reg-derived scaling is dropped without replacement.
     const Fraction f = registerToFraction(register_, params_.length);
-    const double frac = f.den > 0 ? static_cast<double>(f.num) / static_cast<double>(f.den) : 0.0;
-
-    // Mode dispatch.
-    int note;
-    int velocity;
-    if (params_.mode == Mode::Gate)
-    {
-        note = (params_.rangeLo + params_.rangeHi) / 2;
-        velocity = params_.outputVelocity;
-    }
-    else if (params_.mode == Mode::Velocity)
-    {
-        note = mapToNote(f.num, f.den, params_.rangeLo, params_.rangeHi);
-        const double vNorm = 0.3 + frac * 0.7;
-        int vRaw = static_cast<int>(std::floor(vNorm * params_.outputVelocity));
-        if (vRaw < 1) vRaw = 1;
-        if (vRaw > 127) vRaw = 127;
-        velocity = vRaw;
-    }
-    else  // Mode::Note
-    {
-        note = mapToNote(f.num, f.den, params_.rangeLo, params_.rangeHi);
-        velocity = params_.outputVelocity;
-    }
+    const int note = mapToNote(f.num, f.den, params_.rangeLo, params_.rangeHi);
+    const int velocity = params_.outputVelocity;
 
     // Bit-tap active = LSB-fires OR density-draw-fires. Density draw is
     // ALWAYS consumed so the rng thread stays in lockstep across the
