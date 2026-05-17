@@ -101,17 +101,18 @@ The artifact is `dist/Stencil.dmg`. Build pipeline:
 ```bash
 (cd vst && make build && make test && make verify-artefacts)
 DEVELOPER_TEAM_ID=XXXXXXXXXX vst/scripts/codesign.sh
-NOTARY_PROFILE=stencil-notary vst/scripts/notarize.sh
+vst/scripts/notarize.sh
 DEVELOPER_TEAM_ID=XXXXXXXXXX vst/scripts/build-dmg.sh
 ```
 
 `codesign.sh` + `notarize.sh` + `build-dmg.sh` require
 `DEVELOPER_TEAM_ID` (Developer ID Application team) and a `notarytool`
-keychain profile named `stencil-notary` (override via `NOTARY_PROFILE`).
-One-time setup of the keychain profile:
+keychain profile named `im9-notary` (shared across im9 plugins;
+override via `NOTARY_PROFILE`). One-time setup of the keychain
+profile:
 
 ```bash
-xcrun notarytool store-credentials stencil-notary \
+xcrun notarytool store-credentials im9-notary \
   --apple-id <APPLE_ID> --team-id <TEAM_ID> --password <APP_SPECIFIC_PW>
 ```
 
