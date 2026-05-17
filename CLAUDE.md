@@ -66,18 +66,23 @@ m4l/                 — Max for Live device (Stencil only)
     dist/              compiled output (loaded by host)
     package.json, tsconfig.json
   host/              — n4m host layer (TypeScript)
-    bridge.ts, host.ts, *.test.ts
-    ui/                jsui logic + tests
+    bridge.ts, host.ts, stencil-bundle.test.ts, *.test.ts
+    ui/                jsui logic + tests (pure TS, runs in Node)
+      registerRing.logic.ts, registerRing.logic.test.ts, registerRing.mirror.test.ts
+      rangeSlider.logic.ts,  rangeSlider.logic.test.ts,  rangeSlider.mirror.test.ts
     dist/              compiled output
     package.json, tsconfig.json
-  stencil.mjs        — n4m entry, loaded by [node.script] (flat path)
-  registerRing.jsui.js — bit ring renderer (flat path; loaded by [jsui])
-  registerRing.subpatcher.maxpat — companion subpatcher (flat path; bpatcher in Stencil.maxpat)
+  stencil.entry.mjs  — n4m entry source (imports compiled host/dist)
+  stencil.mjs        — esbuild bundle of stencil.entry.mjs (loaded by [node.script]; flat path)
+  registerRing.jsui.js, registerRing.subpatcher.maxpat — bit ring [jsui] + bpatcher (flat path)
+  rangeSlider.jsui.js, rangeSlider.subpatcher.maxpat — range slider [jsui] + bpatcher (flat path)
+  separator-renderer.js — thin-line vertical separator [jsui] (flat path)
   Stencil.maxpat     — Max patcher source (tracked in git)
   Stencil.amxd       — Max for Live device (built artifact, tracked)
   scripts/
     maxpat-to-amxd.mjs   bake script (single product, no argv)
-  package.json, pnpm-workspace.yaml
+    bake.test.mjs, patcher.test.mjs   bake + .maxpat guard tests
+  package.json, pnpm-workspace.yaml, LICENSE
 vst/                 — VST3 + AU + CLAP MIDI Effect plugin (C++17/JUCE)
   Source/
     Engine/          — pure C++17, no juce_* (iOS-reuse / test-link boundary)
@@ -99,7 +104,12 @@ vst/                 — VST3 + AU + CLAP MIDI Effect plugin (C++17/JUCE)
   JUCE/              — JUCE framework (git submodule, 8.0.12+)
   clap-juce-extensions/  — CLAP wrapper for JUCE plugins (git submodule, 0.26.x)
   tests/             — Catch2 v3 unit tests (custom main owns JUCE init)
-  scripts/           — build helpers (check-artefacts.sh)
+  scripts/           — build + release helpers (ported from oedipa)
+    check-artefacts.sh   verify VST3 + AU + CLAP + Standalone bundles
+    codesign.sh          Developer ID signing of plugin bundles
+    notarize.sh          Apple notarization submission + staple
+    build-dmg.sh         pack signed bundles into distributable DMG
+    entitlements.plist, INSTALL.txt, README.txt   DMG payload assets
   CMakeLists.txt, Makefile
 docs/ai/             — design docs, ADRs, test vectors
   concept.md

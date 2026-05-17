@@ -61,7 +61,7 @@ see [Build](#build) below.
 
 | Target | Status | Notes |
 |---|---|---|
-| [Max for Live](m4l/) | v0.1.0 (release pending) | Ableton Live MIDI effect. Free brand-promo build via this repo's GitHub Releases (`m4l-v*` tags). |
+| [Max for Live](m4l/) | v0.1.0 | Ableton Live MIDI effect. Free brand-promo build via this repo's GitHub Releases (`m4l-v*` tags). |
 | [VST3](vst/) | v0.1.0 | macOS, C++17 / JUCE. Self-build via `make build`; paid release TBA. |
 | [AU](vst/) | v0.1.0 | macOS. Same codebase as the VST3. Self-build via `make build`; paid release TBA. |
 | [CLAP](vst/) | v0.1.0 | macOS. Same codebase. `note-effect` build for Bitwig + Reaper. |
@@ -114,7 +114,7 @@ Per-target build commands:
 | Target | First time | Build | Test |
 |---|---|---|---|
 | `m4l/` (workspace) | `cd m4l && pnpm install` | `pnpm -r build` | `pnpm -r test` |
-| `vst/` (VST3 + AU) | `git submodule update --init --recursive` | `cd vst && make build` | `cd vst && make test` |
+| `vst/` (VST3 + AU + CLAP) | `git submodule update --init --recursive` | `cd vst && make build` | `cd vst && make test` |
 
 m4l rebake after source edits: `cd m4l && pnpm bake` (refreshes
 `Stencil.amxd` from `Stencil.maxpat`).
