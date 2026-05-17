@@ -1,8 +1,14 @@
 # ADR 007: Stencil VST architecture — JUCE MIDI Effect (VST3 + AU + CLAP)
 
-## Status: Proposed
+## Status: Implemented
 
 **Created**: 2026-05-09
+**Implemented**: 2026-05-17 (1494 assertions / 90 cases pass; host load
+Logic AU + Bitwig CLAP/VST3 + Reaper verified manually; Studio One
+deferred (no host on hand); 6 audit follow-ups resolved — RT-safe
+vector reservation + detectBoundaries out-param, seqlock snapshot
+tuple, sample-accurate input MIDI interleave, outputGate=0 emission
+clamp, seed-mode register preservation across transport bounce.)
 **Revised**: 2026-05-10 — §MIDI processing porting omission fix:
 mode dispatch (gate = range midpoint, velocity = `(0.3 + frac × 0.7) × outputVelocity`),
 "bit-tap active" semantic (`active = (reg & 1) || densityDraw`),
@@ -870,7 +876,7 @@ pass at every phase boundary.
 - [x] Update [`CLAUDE.md`](../../../CLAUDE.md) §Build / §Layout for
       vst section: source tree, `make` targets, format list, CLAP
       submodule.
-- [ ] Update [`docs/ai/adr/INDEX.md`](INDEX.md) — flip ADR 007
+- [x] Update [`docs/ai/adr/INDEX.md`](INDEX.md) — flip ADR 007
       row from `Proposed` to `Implemented` once §Verification is
       ticked.
 
