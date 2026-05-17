@@ -714,3 +714,88 @@ TEST_CASE("processBlock seed/length param change re-creates register",
     const auto regAfter = proc.getSequencerForTest().getRegister();
     CHECK(regAfter != regBefore);  // re-init from new seed produced different state
 }
+
+// ─── Gate-mode visual freeze (ADR 007 §MIDI processing — gate branch) ────
+
+TEST_CASE("processBlock gate-mode with no held input freezes visual snapshots",
+          "[plugin][processBlock][trigger_mode][gate_idle]")
+{
+    // ADR 007 §MIDI processing: in triggerMode = gate, while the held-set
+    // is empty, transport-driven steps are silent and register / rng are
+    // frozen. The editor's ring uses getLastStepTimeMicros() as the
+    // γ-anticipation anchor and getCumulativeSteps() as the dirty-flag
+    // trigger; both must stay quiescent in gate-idle so the ring doesn't
+    // keep rotating CW step-by-step through bits that never sounded.
+    StencilProcessor proc;
+    auto& apvts = proc.getApvts();
+    apvts.getParameter(pid::triggerMode)->setValueNotifyingHost(
+        apvts.getParameter(pid::triggerMode)->convertTo0to1(1.0f));  // gate
+
+    // 120 BPM, 48 kHz, 24000-sample block = one quarter = 4 × 16th steps.
+    proc.prepareToPlay(48000.0, 24000);
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    ph.position.setIsPlaying(true);
+    proc.setPlayHead(&ph);
+
+    const auto regBefore = proc.getRegisterSnapshot();
+
+    juce::AudioBuffer<float> audio(0, 24000);
+    juce::MidiBuffer midi;
+    proc.processBlock(audio, midi);
+
+    CHECK(proc.getCumulativeSteps() == 0);
+    CHECK(proc.getLastStepTimeMicros() == 0);
+    CHECK(proc.getRegisterSnapshot() == regBefore);
+
+    int noteOnCount = 0;
+    for (const auto meta : midi)
+        if (meta.getMessage().isNoteOn())
+            ++noteOnCount;
+    CHECK(noteOnCount == 0);
+}
+
+TEST_CASE("processBlock gate-mode clears animation anchor when input released",
+          "[plugin][processBlock][trigger_mode][gate_idle]")
+{
+    // Holding a key advances cumulativeSteps and anchors lastStepTime;
+    // releasing it must freeze further snapshot publication AND zero
+    // lastStepTime so the ring snaps back to the static frame instead of
+    // completing the in-flight γ-anticipation rotation toward a step that
+    // will never sound.
+    StencilProcessor proc;
+    auto& apvts = proc.getApvts();
+    apvts.getParameter(pid::triggerMode)->setValueNotifyingHost(
+        apvts.getParameter(pid::triggerMode)->convertTo0to1(1.0f));  // gate
+    apvts.getParameter(pid::lock)->setValueNotifyingHost(1.0f);
+    apvts.getParameter(pid::density)->setValueNotifyingHost(1.0f);
+
+    proc.prepareToPlay(48000.0, 24000);
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    ph.position.setIsPlaying(true);
+    proc.setPlayHead(&ph);
+
+    // Block 1: noteOn at sample 0 → engine processes all 4 step boundaries.
+    {
+        juce::AudioBuffer<float> audio(0, 24000);
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8{ 100 }), 0);
+        proc.processBlock(audio, midi);
+    }
+    CHECK(proc.getCumulativeSteps() == 4);
+    CHECK(proc.getLastStepTimeMicros() > 0);
+
+    // Block 2: noteOff at sample 0 → gate-idle for all 4 boundaries.
+    ph.position.setPpqPosition(juce::makeOptional(0.25));
+    {
+        juce::AudioBuffer<float> audio(0, 24000);
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+        proc.processBlock(audio, midi);
+    }
+    CHECK(proc.getCumulativeSteps() == 4);          // no advance during gate-idle
+    CHECK(proc.getLastStepTimeMicros() == 0);       // animation anchor cleared
+}

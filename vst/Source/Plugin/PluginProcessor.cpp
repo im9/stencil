@@ -305,6 +305,21 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
 
         for (const auto& b : boundaries)
         {
+            // Gate-mode silence: in triggerMode = gate with the held-set
+            // empty, Sequencer::processStep is a no-op (register / rng
+            // frozen per ADR 007 §MIDI processing). Mirror that freeze
+            // on the editor side — skip the snapshot publication so the
+            // ring's γ-anticipation rotation stops, and zero
+            // lastStepTimeMicros_ so an in-flight rotation from the last
+            // held-step collapses back to the static frame instead of
+            // easing toward a step that will never sound.
+            if (params.triggerMode == engine::TriggerMode::Gate
+                && sequencer_.heldInputCount() == 0)
+            {
+                lastStepTimeMicros_.store(0, std::memory_order_relaxed);
+                continue;
+            }
+
             // Capture register before stepping so we can detect whether
             // shiftAndFlip flipped the bit (new MSB ≠ consumed LSB).
             const auto preStepReg = sequencer_.getRegister();
