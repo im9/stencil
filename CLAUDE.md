@@ -192,9 +192,9 @@ make open               # launch the Standalone build (dev only)
   (`Stencil → Pointsman → Synth` is the canonical use)
 - Parameters normalized in plugin/host layer
 - Label: im9. M4L build ships free under the brand-promo posture
-  (`im9/stencil-m4l` distribution repo, `Stencil.amxd` via GitHub
-  Releases). VST3 / AU / CLAP builds are planned as paid releases
-  (price / channel TBD). See ADR 005 §Distribution posture.
+  (`Stencil.amxd` attached to `m4l-v*` GitHub Releases on this repo,
+  oedipa pattern). VST3 / AU / CLAP builds are planned as paid
+  releases (price / channel TBD). See ADR 005 §Distribution posture.
 
 ## Mandatory Workflow
 

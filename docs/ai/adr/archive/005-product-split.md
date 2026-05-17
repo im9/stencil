@@ -133,9 +133,10 @@ and oedipa:
   source secrecy.
 - **Pricing** — split by target as of 2026-05-09 amendment:
   - **M4L builds** ship **free** as brand-promo, in the same posture
-    as oedipa's m4l. Distributed via per-product slim public repos
-    (`im9/stencil-m4l`, `im9/pointsman-m4l`) with `Stencil.amxd` /
-    `Pointsman.amxd` hosted on GitHub Releases.
+    as oedipa's m4l. Distributed via GitHub Releases on each product's
+    main source repo (`im9/stencil` / `im9/pointsman`) under the
+    per-target tag namespace `m4l-vX.Y.Z`, with `Stencil.amxd` /
+    `Pointsman.amxd` attached as release assets.
   - **VST3 / AU / CLAP builds** are planned as **paid** releases
     (price / channel TBD). Native-plugin investment (cross-platform
     DAW compatibility, code signing, notarization) is the rationale
@@ -173,6 +174,26 @@ and oedipa:
   > the build-pipeline complexity is the practical moat. Same
   > pricing posture (m4l free / native paid) — only repo visibility
   > and license shape change.
+
+  > **Amended 2026-05-17 — drop per-product slim binary repos in
+  > favor of oedipa-style releases on the source repo.** The
+  > original wording said "Distributed via per-product slim public
+  > repos (`im9/stencil-m4l`, `im9/pointsman-m4l`) with
+  > `Stencil.amxd` / `Pointsman.amxd` hosted on GitHub Releases."
+  > That pattern was an early experiment; oedipa has been shipping
+  > from `im9/oedipa` directly under `m4l-vX.Y.Z` tags since
+  > 2026-05-10 without the slim binary repo. The split added a
+  > second URL for users to find and a second repo to maintain,
+  > with no offsetting benefit (the source repo is already public
+  > and the asset is a single `.amxd`). Cutover: the early canary
+  > `Stencil v1.0.0` release on `im9/stencil-m4l` is treated as
+  > withdrawn (undisclosed); the repo is set to public-archive
+  > while `im9/stencil` remains private (so the v1.0.0 download
+  > URL stays reachable), and deleted once `im9/stencil` goes
+  > public. First cutover release on `im9/stencil` is
+  > `m4l-v0.1.0`. Per `feedback_porting_bug_amend_not_supersede`:
+  > amended in place, not superseded. The pointsman side requires
+  > the same cutover in the Pointsman repo and is owned there.
 
 ### Repository split
 

@@ -41,9 +41,8 @@ Full musical model: [`docs/ai/concept.md`](docs/ai/concept.md).
 
 ## Status
 
-`m4l/` is released as v1.0.0 on
-[`im9/stencil-m4l`](https://github.com/im9/stencil-m4l) (free, brand-promo
-per [ADR 005][adr5]).
+`m4l/` is at v0.1.0; first release ships as `m4l-v0.1.0` on this repo's
+GitHub Releases (free, brand-promo per [ADR 005][adr5]).
 
 `vst/` is at v0.1.0: AU + VST3 + CLAP bundles built, signed, and
 notarized as a macOS DMG. Architecture and host-load matrix are
@@ -62,7 +61,7 @@ see [Build](#build) below.
 
 | Target | Status | Notes |
 |---|---|---|
-| [Max for Live](m4l/) | Released v1.0.0 | Ableton Live MIDI effect. Free brand-promo build on [`im9/stencil-m4l`](https://github.com/im9/stencil-m4l). |
+| [Max for Live](m4l/) | v0.1.0 (release pending) | Ableton Live MIDI effect. Free brand-promo build via this repo's GitHub Releases (`m4l-v*` tags). |
 | [VST3](vst/) | v0.1.0 | macOS, C++17 / JUCE. Self-build via `make build`; paid release TBA. |
 | [AU](vst/) | v0.1.0 | macOS. Same codebase as the VST3. Self-build via `make build`; paid release TBA. |
 | [CLAP](vst/) | v0.1.0 | macOS. Same codebase. `note-effect` build for Bitwig + Reaper. |
@@ -132,7 +131,8 @@ individual ADRs only when the relevant area is being touched.
 Licensed per target:
 
 - `m4l/` — [MIT](m4l/LICENSE). Free to use, modify, and redistribute.
-  Binary distribution via [`im9/stencil-m4l`](https://github.com/im9/stencil-m4l).
+  Binary distribution via this repo's GitHub Releases under the
+  `m4l-v*` tag namespace.
 - `vst/` — [Proprietary, source-available](vst/LICENSE). Read, self-build,
   and personal non-commercial use are permitted. Redistribution and
   commercial use require permission from im9. Binaries are sold by im9.
