@@ -1,0 +1,55 @@
+Stencil — probabilistic MIDI sequence generator
+im9
+
+
+Installation
+------------
+
+Drag Stencil.component into:
+  ~/Library/Audio/Plug-Ins/Components/
+
+Drag Stencil.vst3 into:
+  ~/Library/Audio/Plug-Ins/VST3/
+
+Drag Stencil.clap into:
+  ~/Library/Audio/Plug-Ins/CLAP/
+
+Any of these folders may need to be created manually if you have no
+other plug-ins of that format installed there.
+
+
+Hosting
+-------
+
+Logic Pro          AU MIDI FX slot on a software-instrument track.
+                   Primary supported host. (Logic does not host
+                   CLAP; use the AU build.)
+
+Bitwig Studio      CLAP or VST3 MIDI fx slot, in front of an
+                   instrument. CLAP is Bitwig's native plug-in
+                   format.
+
+Reaper             VST3 in any FX chain, or CLAP via the FX chain.
+                   Best-effort, not formally tested for v1.
+
+Studio One         VST3 in MIDI fx slot. Best-effort, not formally
+                   tested for v1. The CLAP build is also produced
+                   but has not been verified in Studio One.
+
+Ableton Live       Use the Max for Live device (m4l target) instead.
+                   Live does not accept third-party VST3 / AU plug-
+                   ins in its MIDI Effect rack and does not host
+                   CLAP.
+
+Cubase / Nuendo    Not supported. The VST3 spec has no MIDI Effect
+                   category, and Cubase rejects third-party VST3 in
+                   its MIDI Inserts slot.
+
+FL Studio          Not supported. FL has no MIDI fx routing on any
+                   plug-in surface.
+
+
+License
+-------
+
+MIT — https://github.com/im9/stencil/blob/main/LICENSE

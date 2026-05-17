@@ -22,13 +22,15 @@ The release asset is target-specific:
   in Max required (snowflake button → *File → Save As*). See
   [ADR 004 §Bake / distribution](../../../docs/ai/adr/004-m4l-bake-distribution.md)
   and [ADR 006 §Release verification](../../../docs/ai/adr/006-m4l-release-verification.md).
-- **vst** → no binary asset yet. Per
-  [ADR 005 §Distribution posture](../../../docs/ai/adr/005-product-split.md),
-  vst (VST3 / AU / CLAP) ships as a **paid** release; the platform is
-  TBD as of writing. Until that decision lands, vst releases are
-  **tag-only** (`gh release create --notes-file ...` with no asset).
-  **HALT and ask the user before publishing any vst binary** as a free
-  GH Releases download.
+- **vst** → `dist/Stencil.dmg` — signed-and-notarized DMG bundling
+  AU + VST3 + CLAP + INSTALL.txt + README.txt. Built by
+  `vst/scripts/build-dmg.sh` after `codesign.sh` + `notarize.sh`.
+  Per [ADR 005 §Distribution posture](../../../docs/ai/adr/005-product-split.md)
+  vst is a paid release; if/when the channel decision (gumroad / itch /
+  own site) requires DMG delivery off-GitHub instead of attached to the
+  GH Release, **HALT at Step 3 and confirm with the user** before
+  uploading. Default in this skill is to attach the DMG, mirroring
+  m4l's amxd attachment.
 
 ## Pre-flight checks (do these BEFORE creating the tag)
 
@@ -94,15 +96,38 @@ plays, the bit ring renders, FREEZE / ROLL respond. CI does not
 
 #### vst target
 
-No binary asset to verify. Confirm the source-only release is
-intentional (paid platform still TBD). Optionally run a local build
-sanity check:
+The artifact is `dist/Stencil.dmg`. Build pipeline:
 
 ```bash
 (cd vst && make build && make test && make verify-artefacts)
+DEVELOPER_TEAM_ID=XXXXXXXXXX vst/scripts/codesign.sh
+NOTARY_PROFILE=stencil-notary vst/scripts/notarize.sh
+DEVELOPER_TEAM_ID=XXXXXXXXXX vst/scripts/build-dmg.sh
 ```
 
-Manual host smoke (Logic AU MIDI FX + Bitwig VST3 MIDI fx) is
+`codesign.sh` + `notarize.sh` + `build-dmg.sh` require
+`DEVELOPER_TEAM_ID` (Developer ID Application team) and a `notarytool`
+keychain profile named `stencil-notary` (override via `NOTARY_PROFILE`).
+One-time setup of the keychain profile:
+
+```bash
+xcrun notarytool store-credentials stencil-notary \
+  --apple-id <APPLE_ID> --team-id <TEAM_ID> --password <APP_SPECIFIC_PW>
+```
+
+Verify freshness:
+
+```bash
+ls -la dist/Stencil.dmg
+stat -f '%m' dist/Stencil.dmg                          # mtime as epoch
+git log -1 --format=%ct -- vst/Source vst/CMakeLists.txt  # latest vst-source commit time
+```
+
+`dist/Stencil.dmg` mtime must be **>=** the latest vst-source commit
+time. If older, rebuild via the pipeline above (and re-sign +
+re-notarize — the build clears the signatures).
+
+Manual host smoke (Logic AU MIDI FX + Bitwig VST3/CLAP MIDI fx) is
 recommended before tagging — ADR 007's host-load matrix is the
 gating manual step.
 
@@ -203,8 +228,9 @@ gh release create "$TAG" dist/Stencil.amxd \
   --title "$TITLE" \
   --notes-file "/tmp/stencil-$TAG-notes.md"
 
-# vst — tag-only (paid platform TBD; do not attach a binary)
-gh release create "$TAG" \
+# vst — attach the signed-and-notarized DMG (or HALT if ADR 005
+#       channel decision routes the DMG off-GitHub)
+gh release create "$TAG" dist/Stencil.dmg \
   --title "$TITLE" \
   --notes-file "/tmp/stencil-$TAG-notes.md"
 ```
@@ -219,8 +245,9 @@ Confirm:
 
 - For m4l: `assets[0].name == "Stencil.amxd"`, `assets[0].size > 0`,
   and matches the local file's size.
-- For vst: `assets == []` (tag-only by design until paid platform
-  decision).
+- For vst: `assets[0].name == "Stencil.dmg"`, `assets[0].size > 0`,
+  matches local file size (unless ADR 005 channel decision routed
+  the DMG off-GitHub → expect `assets == []`).
 - The release URL is reachable.
 
 Show the release URL to the user.
@@ -238,8 +265,8 @@ rm "/tmp/stencil-$TAG-notes.md"
   exists. The editor reads the version at compile time, so a tag
   that pre-dates the bump points at a plugin binary reporting the
   OLD version.
-- **Asset is target-specific.** m4l → `dist/Stencil.amxd`
-  (frozen); vst → no asset until paid platform decides. Never mix.
+- **Asset is target-specific.** m4l → `dist/Stencil.amxd` (frozen);
+  vst → `dist/Stencil.dmg` (signed + notarized). Never mix.
 - **Tag namespace is per-target.** `m4l-vX.Y.Z` and `vst-vX.Y.Z`
   are independent versioning lines.
 - **Manual Freeze required for m4l.** Max has no CLI freeze; this
@@ -254,6 +281,14 @@ rm "/tmp/stencil-$TAG-notes.md"
 - **Halt on any user-confirmation gate.** Steps 0 (bump commit),
   1 (version number), 2 (notes) each require explicit "ok" — don't
   proceed silently.
-- **Halt before publishing any vst binary.** Until the paid
-  distribution platform decision is recorded in ADR 005 (or a
-  successor ADR), vst releases stay tag-only.
+- **vst DMG must be signed + notarized + stapled** before tagging.
+  `build-dmg.sh` enforces this (it requires `DEVELOPER_TEAM_ID` and
+  runs codesign + notarytool + stapler on the DMG itself; the AU /
+  VST3 / CLAP bundles inside must already be signed + notarized via
+  `codesign.sh` + `notarize.sh`). Unsigned DMGs break on Gatekeeper
+  for end users — don't ship.
+- **Confirm GH attachment vs. off-GitHub channel.** ADR 005's paid
+  distribution channel may route DMG delivery off-GitHub (gumroad /
+  itch / own site). At Step 3, confirm whether the user wants the
+  DMG attached to the GH Release or wants a tag-only release with
+  the DMG distributed separately.
