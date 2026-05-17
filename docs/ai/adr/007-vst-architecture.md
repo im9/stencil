@@ -894,17 +894,17 @@ excluded by §Scope §Out of scope and do not appear here.
 
 Primary (must pass):
 
-- [ ] **Logic Pro** — load `Stencil.component` as AU MIDI FX in a
+- [x] **Logic Pro** — load `Stencil.component` as AU MIDI FX in a
       software-instrument track. Plays clock, emits notes,
       survives transport start/stop. No hung notes on bypass.
-- [ ] **Bitwig Studio** — load `Stencil.clap` (preferred) and
+- [x] **Bitwig Studio** — load `Stencil.clap` (preferred) and
       `Stencil.vst3` in a Note FX slot in front of an instrument.
       Same checks for each format. CLAP load and VST3 load both
       verified click-free (matches oedipa's verification bar).
 
 Best-effort (load + smoke; not blocking for v1):
 
-- [ ] **Reaper** — load `Stencil.vst3` and `Stencil.clap` in a
+- [x] **Reaper** — load `Stencil.vst3` and `Stencil.clap` in a
       MIDI Effect chain. Plays clock, emits notes.
 - [ ] **Studio One** — load `Stencil.vst3` in a MIDI fx slot.
       Loads and emits notes (formal verification deferred; CLAP
@@ -912,31 +912,31 @@ Best-effort (load + smoke; not blocking for v1):
 
 ### Functional correctness (manual)
 
-- [ ] **All 12 parameters** are visible in each host's parameter
+- [x] **All 12 parameters** are visible in each host's parameter
       list and persist across save/reload. (Was 13 before the
       2026-05-15 `mode` removal.)
-- [ ] **Cross-target audible parity** — load `Stencil.amxd` (m4l)
+- [x] **Cross-target audible parity** — load `Stencil.amxd` (m4l)
       and `Stencil.vst3` with identical `(seed, length, lock,
       density, range, subdivision)`. Run both at 120 BPM through
       the same synth. Pitch sequence must match — and velocity /
       gate should also match now that m4l caught up to the
       single-dispatch spec (2026-05-16).
-- [ ] **Output single-dispatch** — every active step emits one
+- [x] **Output single-dispatch** — every active step emits one
       noteOn with `pitch = mapToNote(reg, range)`,
       `velocity = outputVelocity`, `gate = outputGate × stepDur`.
       Verified audibly with a fixed-pitch test (set `rangeLo ==
       rangeHi`) and a varying-pitch test (`rangeLo < rangeHi`).
-- [ ] **Trigger modes** — `auto` (transport-driven), `gate` (key-
+- [x] **Trigger modes** — `auto` (transport-driven), `gate` (key-
       held), `seed` (input notes seed register). Each verified
       with input MIDI in the chosen host.
-- [ ] **Hung-note discipline** — transport stop emits noteOff for
+- [x] **Hung-note discipline** — transport stop emits noteOff for
       every active note. Bypass mid-note emits noteOff. Preset
       load between sounding notes emits noteOff first. Verified
       with MIDI monitor / synth release.
-- [ ] **FREEZE / ROLL** — FREEZE jumps `lock` to `1.0`,
+- [x] **FREEZE / ROLL** — FREEZE jumps `lock` to `1.0`,
       preserves the loop; un-FREEZE restores prior lock value.
       ROLL re-seeds; new loop emerges next subdivision.
-- [ ] **Visual fidelity** — ring + history side-by-side with
+- [x] **Visual fidelity** — ring + history side-by-side with
       inboil reference screenshot: palette, typography, layout
       proportions match within reasonable JUCE-paint tolerance.
 
