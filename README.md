@@ -41,14 +41,13 @@ Full musical model: [`docs/ai/concept.md`](docs/ai/concept.md).
 
 ## Status
 
-`m4l/` is feature-complete for v1 and in distribution prep; the
-manual-Live verification gate is tracked by [ADR 006][adr6].
+`m4l/` is released as v1.0.0 on
+[`im9/stencil-m4l`](https://github.com/im9/stencil-m4l) (free, brand-promo
+per [ADR 005][adr5]).
 
-`vst/` is paused at scaffold. The plugin builds but is not
-host-verified; the vst-internal architecture ADR is authored when vst
-work resumes.
-
-[adr6]: docs/ai/adr/006-m4l-release-verification.md
+`vst/` is at v0.1.0: AU + VST3 + CLAP bundles built, signed, and
+notarized as a macOS DMG. Architecture and host-load matrix are
+captured by [ADR 007][adr7]. Paid release channel TBA.
 
 ## Use (Max for Live)
 
@@ -63,9 +62,10 @@ see [Build](#build) below.
 
 | Target | Status | Notes |
 |---|---|---|
-| [Max for Live](m4l/) | v1 prep | Ableton Live MIDI effect. Current primary target. |
-| [VST3](vst/) | Scaffold | Paused; resumes per a future vst-architecture ADR. |
-| [AU](vst/) | Scaffold | Same codebase as the VST3. Paused. |
+| [Max for Live](m4l/) | Released v1.0.0 | Ableton Live MIDI effect. Free brand-promo build on [`im9/stencil-m4l`](https://github.com/im9/stencil-m4l). |
+| [VST3](vst/) | v0.1.0 | macOS, C++17 / JUCE. Self-build via `make build`; paid release TBA. |
+| [AU](vst/) | v0.1.0 | macOS. Same codebase as the VST3. Self-build via `make build`; paid release TBA. |
+| [CLAP](vst/) | v0.1.0 | macOS. Same codebase. `note-effect` build for Bitwig + Reaper. |
 
 Musical logic is shared as a specification, not as code. m4l and vst
 are independent native implementations. Cross-target conformance is
@@ -76,6 +76,24 @@ RNG primitives are also synchronized cross-repo with Pointsman via
 [ADR 005][adr5].
 
 [adr5]: docs/ai/adr/archive/005-product-split.md
+
+## DAW support
+
+macOS only for v1 (per [ADR 007][adr7]). Windows / Linux distribution is
+deferred. The vst/ build produces AU, VST3, and CLAP bundles together;
+the table below covers per-host compatibility on macOS.
+
+| DAW | Format | Status | Notes |
+|---|---|---|---|
+| Logic Pro | AU | ✅ Primary | AU MIDI FX slot on a software-instrument track. (Logic does not host CLAP.) Verified 2026-05-17. |
+| Bitwig Studio | VST3 / CLAP | ✅ Primary | Note FX slot in front of an instrument. CLAP is Bitwig's native plug-in format. CLAP + VST3 verified 2026-05-17. |
+| Reaper | VST3 / CLAP | ⚠️ Best-effort | VST3 or CLAP in any MIDI FX chain. Load verified 2026-05-17; not exhaustively tested for v1. |
+| Studio One | VST3 | ⚠️ Best-effort | VST3 in MIDI fx slot. Not formally tested for v1 (no host on hand). CLAP build is also produced but unverified in Studio One. |
+| Ableton Live | — | Use m4l/ | Live does not accept third-party VST3 / AU plug-ins in its MIDI Effect rack (host design, not a format limitation) and does not host CLAP. The [Max for Live device](m4l/) is the supported path. |
+| Cubase / Nuendo | — | ❌ Out of scope | The VST3 spec has no "MIDI Effect" sub-category and Cubase rejects third-party VST3 in its MIDI Inserts slot (Steinberg policy). Loading Stencil as an Instrument with two-track MIDI-out routing works mechanically but conflicts with the "MIDI fx, not synth" identity Stencil is built on. Revisit only if Cubase opens its MIDI Inserts to third-party VST3. |
+| FL Studio | — | ❌ Out of scope | FL has no MIDI fx routing on any plug-in surface: VST3 channel slot accepts only instruments, mixer hosts only audio fx, no MIDI fx slot exists; CLAP `note-effect` plug-ins are not bridged to FL's internal note bus. Reconsider only if FL adds a native MIDI fx track concept. |
+
+[adr7]: docs/ai/adr/archive/007-vst-architecture.md
 
 ## Origin
 
@@ -111,7 +129,14 @@ individual ADRs only when the relevant area is being touched.
 
 ## License
 
-[MIT](LICENSE). The Max for Live build ships free under the `im9`
-label (see [`im9/stencil-m4l`](https://github.com/im9/stencil-m4l)
-for the binary distribution). Native plugin builds (VST3 / AU /
-CLAP) are planned as paid releases.
+Licensed per target:
+
+- `m4l/` — [MIT](m4l/LICENSE). Free to use, modify, and redistribute.
+  Binary distribution via [`im9/stencil-m4l`](https://github.com/im9/stencil-m4l).
+- `vst/` — [Proprietary, source-available](vst/LICENSE). Read, self-build,
+  and personal non-commercial use are permitted. Redistribution and
+  commercial use require permission from im9. Binaries are sold by im9.
+- `docs/` — [MIT](docs/LICENSE). Shared design notes and ADRs.
+
+Third-party components under `vst/JUCE/`, `vst/clap-juce-extensions/`, and
+the CMake `_deps/` tree retain their own licenses.

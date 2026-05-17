@@ -119,13 +119,18 @@ not committed to any product slot in this ADR.
 Both products inherit the existing im9 pattern established by Stencil
 and oedipa:
 
-- **License** — same as Stencil's `LICENSE`. The Phase 2 `git clone`
-  preserves the file verbatim into Pointsman; no new license decision.
-- **Repo visibility** — private during development, public at
-  distribution time. The Pointsman GitHub repo (`im9/pointsman`,
-  private) is provisioned at split time as part of Phase 2 so the
-  cloned working tree has a real GitHub upstream from day one;
-  flipping to public happens at distribution time.
+- **License** — per-target split, matching oedipa's structure:
+  `m4l/LICENSE` and `docs/LICENSE` ship under MIT (free reuse);
+  `vst/LICENSE` is proprietary source-available (read / self-build
+  for personal non-commercial use / contributions permitted;
+  redistribution and commercial use require explicit permission).
+  The Phase 2 `git clone` preserves these files verbatim into
+  Pointsman.
+- **Repo visibility** — public. Both `im9/stencil` and `im9/pointsman`
+  source repos are publishable on GitHub from day one; the proprietary
+  vst license + the build-pipeline complexity (JUCE + CMake + signing
+  + notarization) are the moat for the paid native builds rather than
+  source secrecy.
 - **Pricing** — split by target as of 2026-05-09 amendment:
   - **M4L builds** ship **free** as brand-promo, in the same posture
     as oedipa's m4l. Distributed via per-product slim public repos
@@ -156,6 +161,18 @@ and oedipa:
   > `feedback_porting_bug_amend_not_supersede`: amended in place,
   > not superseded. oedipa's posture is owned by the oedipa repo
   > and is not cascaded from here.
+
+  > **Amended 2026-05-17 — source-available vst.** The original
+  > "Repo visibility: private during development, public at
+  > distribution time" framing assumed the vst Source/ would stay
+  > closed even after release. Following oedipa's lead, vst Source/
+  > is now public under a proprietary source-available license
+  > (read / self-build / personal non-commercial use / PRs
+  > permitted; redistribution and commercial use forbidden without
+  > explicit permission). Paid binaries remain the revenue path;
+  > the build-pipeline complexity is the practical moat. Same
+  > pricing posture (m4l free / native paid) — only repo visibility
+  > and license shape change.
 
 ### Repository split
 

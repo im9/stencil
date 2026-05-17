@@ -64,4 +64,4 @@ v0.1.0     Initial release.
 License
 -------
 
-MIT — https://github.com/im9/stencil/blob/main/LICENSE
+Proprietary, source-available — https://github.com/im9/stencil/blob/main/vst/LICENSE

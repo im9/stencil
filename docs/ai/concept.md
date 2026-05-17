@@ -96,8 +96,8 @@ expected on all targets.
 `triggerMode` parameter controls how MIDI input affects Stencil:
 
 - `auto` (default) — Stencil advances on host transport; input is ignored
-- `gate` — Stencil only advances while a key is held; release stops the
-  clock (held register, no shift)
+- `gate` — Stencil only advances while a key is held; release pauses
+  stepping (register / rng frozen, host transport unaffected)
 - `seed` — incoming `noteOn` writes a `1` bit at the head of the register
   (the player "writes the program"). `noteOff` writes `0`. The user
   becomes the bit source; `lock` no longer governs the head bit while
@@ -126,6 +126,15 @@ vst's `processBlock` start-edge handler both call into the same
 same loop from the same seed: stop / start cycles do not drift the
 output away from the seed-defined evolution. Seeded determinism is
 a core contract.
+
+**Exception — `triggerMode = seed` with an active user-written pattern.**
+In seed mode, once the user has driven the register via input notes
+(the `seedActivated` flag latches on first input), the start-edge
+re-derive is skipped and the register pattern survives the stop / start
+bounce. Without this, every play press would wipe the live-performance
+pattern back to the seed-derived initial state. The flag clears when
+`triggerMode` changes or when an explicit re-seed happens (e.g. ROLL,
+seed-param change); auto / gate modes are unaffected.
 
 Mid-loop scrubbing (host moves PPQ to a non-zero position without
 stopping) is *not* re-derived from `(seed, length, lock, position)`
@@ -199,7 +208,8 @@ routing specifics, GUI-only state) may be added per target.
 | `triggerMode`     | `auto \| gate \| seed`        | input handling; default `auto`                     |
 | `inputChannel`    | int `0..16`                   | MIDI input channel; `0` = omni; default `0`        |
 | `outputVelocity`  | int `1..127`                  | output note velocity; default `100`                |
-| `outputGate`      | float `0..1`                  | gate length as fraction of step; default `0.5`     |
+| `outputGate`      | float `0..1`                  | gate length as fraction of step; default `0.5`. Emission clamps the resulting noteOff distance above zero so `outputGate = 0` does not collapse noteOff onto noteOn (the clamp is implementation detail; user-facing range stays `0..1`). |
+| `outputChannel`   | int `1..16`                   | MIDI output channel; default `1`                   |
 
 ## Origin notes
 
