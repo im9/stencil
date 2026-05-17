@@ -75,8 +75,12 @@ void RingView::paint(juce::Graphics& g)
     const int len = currentLength(processor_.getApvts());
     // Pre-shift register: bit 0 = bit the user is currently hearing,
     // drawn at the un-rotated top position under the playhead triangle.
-    const auto reg = processor_.getRegisterSnapshot();
-    const int mutated = processor_.getMutatedBitSnapshot();
+    // Single coherent read so reg / mutated / note all come from the
+    // same boundary — per-field accessors could tear across two steps
+    // (ADR 007 §Audit follow-ups — tuple coherence).
+    const auto snap = processor_.readEditorSnapshot();
+    const auto reg = snap.reg;
+    const int mutated = snap.mutated;
 
     // γ-anticipation phase: fraction of step elapsed since the last
     // step boundary fired. Inputs come from atomic wall-clock anchors
@@ -189,7 +193,7 @@ void RingView::paint(juce::Graphics& g)
 
     g.setColour(theme::olive);
     g.setFont(theme::dataFont(theme::fsXl, true));
-    g.drawText(noteLabel(processor_.getLastNote()),
+    g.drawText(noteLabel(snap.note),
                static_cast<int>(geo.cx - 60.0f),
                static_cast<int>(geo.cy + 2.0f),
                120, 18,
@@ -240,12 +244,11 @@ void RingView::timerCallback()
     // re-anchor the playhead; or (b) inside the γ-anticipation window
     // where rotation is moving continuously. The static window (≥80%
     // of each step) is the cheap early-out path.
-    const auto reg = processor_.getRegisterSnapshot();
-    const int steps = processor_.getCumulativeSteps();
+    const auto snap = processor_.readEditorSnapshot();
     bool dirty = false;
-    if (reg != lastDrawnRegister_ || steps != lastDrawnSteps_) {
-        lastDrawnRegister_ = reg;
-        lastDrawnSteps_ = steps;
+    if (snap.reg != lastDrawnRegister_ || snap.steps != lastDrawnSteps_) {
+        lastDrawnRegister_ = snap.reg;
+        lastDrawnSteps_ = snap.steps;
         dirty = true;
     }
     if (!dirty) {

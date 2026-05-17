@@ -61,25 +61,47 @@ public:
     const engine::Sequencer& getSequencerForTest() const { return sequencer_; }
 
     // ── Editor-thread snapshots (ADR 007 §Threading) ──────────────────────
-    // Audio thread publishes after each step; editor thread reads with no
-    // locking. Eventually-consistent — the editor may show a register one
-    // step behind under load; never used as the source of MIDI emission.
+    // Audio thread publishes after each step via publishSnapshot under a
+    // seqlock version counter; editor thread reads with no locking.
+    // Eventually-consistent — the editor may show a register one step
+    // behind under load; never used as the source of MIDI emission.
     //
-    // `registerSnapshot_` carries the *pre-shift* register state — the
-    // value whose LSB was just consumed for emission. Bit 0 of this
-    // register is the bit the user is currently hearing, which lets the
-    // editor render "bit just emitted under the playhead triangle at
-    // moment of sounding" (ADR 007 §Visual playhead alignment).
-    engine::RegisterBits getRegisterSnapshot() const { return registerSnapshot_.load(std::memory_order_relaxed); }
-    int  getCumulativeSteps() const { return cumulativeStepsSnapshot_.load(std::memory_order_relaxed); }
-    int  getLastNote() const        { return lastNoteSnapshot_.load(std::memory_order_relaxed); }
-    bool getLastActive() const      { return lastActiveSnapshot_.load(std::memory_order_relaxed); }
-    // 0 when shiftAndFlip flipped the just-emitted bit (the new MSB
-    // value differs from the consumed LSB), -1 otherwise. With the
-    // pre-shift snapshot the flipped bit lives at LSB (index 0) of the
-    // displayed register — not at the post-shift MSB position. Drives
+    // `reg` carries the *pre-shift* register state — the value whose LSB
+    // was just consumed for emission. Bit 0 of this register is the bit
+    // the user is currently hearing, which lets the editor render "bit
+    // just emitted under the playhead triangle at moment of sounding"
+    // (ADR 007 §Visual playhead alignment).
+    //
+    // `mutated` is 0 when shiftAndFlip flipped the just-emitted bit (the
+    // new MSB value differs from the consumed LSB), -1 otherwise. With
+    // the pre-shift snapshot the flipped bit lives at LSB (index 0) of
+    // the displayed register — not at the post-shift MSB position. Drives
     // the salmon "mutated" highlight in RingView.
-    int  getMutatedBitSnapshot() const { return mutatedBitSnapshot_.load(std::memory_order_relaxed); }
+    struct EditorSnapshot
+    {
+        engine::RegisterBits reg     = 0;
+        int                  steps   = 0;
+        int                  note    = 60;
+        bool                 active  = false;
+        int                  mutated = -1;
+    };
+
+    // Coherent multi-field read for the editor — single call returns a
+    // tuple captured at one audio-thread step. Spins under in-flight
+    // writes (bounded; writer is ~6 atomic ops). Prefer this over the
+    // per-field accessors when the editor needs more than one field in
+    // one paint, otherwise field stores from different steps can tear
+    // (ADR 007 §Audit follow-ups — tuple coherence).
+    EditorSnapshot readEditorSnapshot() const;
+
+    // Per-field accessors. Each returns a single atomic load. Safe when
+    // the caller only needs one field; coherent with itself but NOT
+    // with the other accessors if called separately.
+    engine::RegisterBits getRegisterSnapshot() const { return snapshotReg_.load(std::memory_order_relaxed); }
+    int  getCumulativeSteps()    const { return snapshotSteps_.load(std::memory_order_relaxed); }
+    int  getLastNote()           const { return snapshotNote_.load(std::memory_order_relaxed); }
+    bool getLastActive()         const { return snapshotActive_.load(std::memory_order_relaxed); }
+    int  getMutatedBitSnapshot() const { return snapshotMutated_.load(std::memory_order_relaxed); }
 
     // ── γ-anticipation playhead timing (ADR 007 §Visual) ──────────────────
     // Wall-clock timestamp of the most recent step boundary in
@@ -113,6 +135,12 @@ private:
     };
     std::vector<PendingNoteOff> pendingNoteOffs_;
 
+    // Reused across processBlock invocations to avoid audio-thread
+    // allocations from detectBoundaries (ADR 007 §Audit follow-ups —
+    // RT safety). Capacity reserved in prepareToPlay; size grows on
+    // first few blocks and is then stable.
+    std::vector<engine::StepBoundary> boundariesBuffer_;
+
     // Detect transport stop edges across blocks for hung-note flush.
     bool wasPlaying_ = false;
     double sampleRate_ = 44100.0;
@@ -130,21 +158,31 @@ private:
     // (no CC 123) — matches m4l host.ts setParam's flushNotesOn shape.
     std::atomic<bool> flushPendingRequested_{false};
 
-    // Editor-thread snapshots, published after each step from processBlock.
-    // Carries the pre-shift register (Sequencer::getLastEmittedRegister)
-    // so bit 0 = "bit just emitted" lines up with the playhead triangle
-    // at the moment of sounding. Default 0 renders an all-empty ring
-    // until the first step lands; harmless because lastStepTimeMicros_
-    // stays 0 too so the editor stays in "static, no animation" mode.
-    std::atomic<engine::RegisterBits> registerSnapshot_{0};
-    std::atomic<int>  cumulativeStepsSnapshot_{0};
-    std::atomic<int>  lastNoteSnapshot_{60};
-    std::atomic<bool> lastActiveSnapshot_{false};
-    // 0 = shiftAndFlip flipped the just-emitted bit (visible at LSB of
-    // the pre-shift snapshot), -1 = no flip. Reset to -1 on
-    // prepareToPlay / setStateInformation / transport-start re-roll
-    // so a stale mutation doesn't linger through lifecycle resets.
-    std::atomic<int>  mutatedBitSnapshot_{-1};
+    // Editor-thread snapshot, published after each step from processBlock
+    // via publishSnapshot under a seqlock version counter. The audio
+    // thread is the sole writer; fields are individually atomic so
+    // per-field accessors stay well-defined, and snapshotVersion_'s
+    // release/acquire orders the field stores into a coherent tuple for
+    // readEditorSnapshot.
+    //
+    // `snapshotReg_` carries the pre-shift register (Sequencer::
+    // getLastEmittedRegister) so bit 0 = "bit just emitted" lines up
+    // with the playhead triangle at the moment of sounding. Default 0
+    // renders an all-empty ring until the first step lands; harmless
+    // because lastStepTimeMicros_ stays 0 too so the editor stays in
+    // "static, no animation" mode.
+    //
+    // `snapshotMutated_` is 0 when shiftAndFlip flipped the just-emitted
+    // bit (visible at LSB of the pre-shift snapshot), -1 = no flip.
+    // Reset to -1 on prepareToPlay / setStateInformation / transport-
+    // start re-roll so a stale mutation doesn't linger through
+    // lifecycle resets.
+    mutable std::atomic<uint32_t>     snapshotVersion_{0};
+    std::atomic<engine::RegisterBits> snapshotReg_{0};
+    std::atomic<int>                  snapshotSteps_{0};
+    std::atomic<int>                  snapshotNote_{60};
+    std::atomic<bool>                 snapshotActive_{false};
+    std::atomic<int>                  snapshotMutated_{-1};
     // γ-anticipation playhead anchor + tempo. Microseconds keep the
     // atomics lock-free on 64-bit platforms. Zero on idle / lifecycle
     // reset so RingView treats "no recent step" as the static phase.
@@ -155,6 +193,14 @@ private:
     // and rangeLo down when rangeHi crosses it (matches m4l host setParam
     // shape — the side that just moved is the side that gets clamped).
     void parameterChanged(const juce::String& parameterID, float newValue) override;
+
+    // Seqlock-bracketed write of the editor snapshot tuple. Audio thread
+    // is the sole writer; bumps snapshotVersion_ to odd before the field
+    // stores and back to even after. Reader (readEditorSnapshot) spins
+    // while it observes an odd version or a version change mid-read.
+    // Wait-free for the writer; bounded retries for the reader.
+    void publishSnapshot(engine::RegisterBits reg, int steps,
+                         int note, bool active, int mutated);
 
     // Helpers
     void drainPendingNoteOffs(juce::MidiBuffer& midi, int blockSamples);

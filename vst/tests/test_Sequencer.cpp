@@ -121,6 +121,45 @@ TEST_CASE("detectBoundaries 8T @ 120bpm — three steps per quarter",
     CHECK(b[2].sampleOffset == 16000);
 }
 
+TEST_CASE("detectBoundaries out-param overload matches return-value overload",
+          "[sequencer][boundaries][rt_safety]")
+{
+    // The audio-thread call site uses the out-param signature against a
+    // reused buffer to avoid per-block allocations. Parity with the
+    // return-value overload is the contract: same boundaries, same order.
+    std::vector<stencil::engine::StepBoundary> out;
+    detectBoundaries(out, 0.0, 120.0, 48000.0, 24000, Subdivision::Sixteenth);
+    const auto returned = detectBoundaries(0.0, 120.0, 48000.0, 24000,
+                                           Subdivision::Sixteenth);
+    REQUIRE(out.size() == returned.size());
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        CHECK(out[i].sampleOffset == returned[i].sampleOffset);
+        CHECK(out[i].stepIndex    == returned[i].stepIndex);
+    }
+}
+
+TEST_CASE("detectBoundaries out-param preserves buffer capacity across calls",
+          "[sequencer][boundaries][rt_safety]")
+{
+    // RT-safe reuse contract: once the caller has reserved a buffer,
+    // detectBoundaries must clear+populate without shrinking capacity
+    // (capacity floor = max boundaries the caller pre-sized for).
+    std::vector<stencil::engine::StepBoundary> buf;
+    buf.reserve(64);
+    const auto capBefore = buf.capacity();
+
+    // First call populates with 4 boundaries.
+    detectBoundaries(buf, 0.0, 120.0, 48000.0, 24000, Subdivision::Sixteenth);
+    CHECK(buf.size() == 4);
+    CHECK(buf.capacity() >= capBefore);
+
+    // Second call with a smaller block produces fewer boundaries but the
+    // capacity stays at-or-above the reservation — no shrink-to-fit.
+    detectBoundaries(buf, 0.0, 120.0, 48000.0, 6000, Subdivision::Sixteenth);
+    CHECK(buf.size() == 1);
+    CHECK(buf.capacity() >= capBefore);
+}
+
 // ─── Sequencer — initial state & reset ─────────────────────────────────────
 
 TEST_CASE("Sequencer constructs deterministically from seed+length",

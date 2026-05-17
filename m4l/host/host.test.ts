@@ -42,6 +42,33 @@ test("constructor — deterministic initial register from seed", () => {
   assert.equal(host.getPosition(), 0);
 });
 
+test("step outputGate=0 — noteOff delaySteps floored above zero (no click)", () => {
+  // ADR 007 §Audit follow-ups: outputGate=0 must not schedule noteOff at
+  // the same instant as noteOn — synths render that as a click or
+  // silence. Floor the emitted delaySteps at a tiny but nonzero value
+  // (≥ MIN_GATE_FRACTION) so every active step is a well-formed note.
+  // The vst-side equivalent is `gateSamples = max(1, ...)` in
+  // PluginProcessor; both targets defend the emission shape rather than
+  // raising the user-visible APVTS / param-range lower bound.
+  const host = makeHost({
+    seed: 1,
+    length: 8,
+    lock: 1.0,
+    density: 1.0,
+    outputGate: 0.0,
+  });
+  host.setBit(0, 1);
+  const events = host.step(0);
+  const { noteOns, noteOffs } = notesFromEvents(events);
+  assert.equal(noteOns.length, 1);
+  assert.equal(noteOffs.length, 1);
+  assert.equal(noteOns[0].delaySteps, 0);
+  assert.ok(
+    noteOffs[0].delaySteps > 0,
+    `noteOff delaySteps must be > 0 even at outputGate=0; got ${noteOffs[0].delaySteps}`,
+  );
+});
+
 test("step auto mode density=1.0 + bit0=1 — emits noteOn + delayed noteOff", () => {
   // Under the bit-tap gate (vst spec 2026-05-16): density=1 + bit0=1 fires;
   // bit0 must be 1 for the gate to even consider the density draw, so the
@@ -277,6 +304,40 @@ test("transportStop — resets position, register preserved", () => {
   host.transportStop();
   assert.equal(host.getRegister(), reg, "register preserved across stop");
   assert.equal(host.getPosition(), 0);
+});
+
+test("transportStart in seed mode preserves user-written register pattern", () => {
+  // ADR 007 §Audit follow-ups — seed-mode register preservation.
+  // In triggerMode = "seed" the player writes the register via input
+  // notes; the next transportStart must resume that pattern, not
+  // re-derive from (seed, length). seedActivated also survives the
+  // stop→start bounce.
+  const host = makeHost({ seed: 1, length: 8, triggerMode: "seed" });
+  host.noteIn(60, 100, 1);
+  host.noteIn(61, 100, 1);
+  host.noteIn(62, 100, 1);
+  const userReg = host.getRegister();
+  assert.notEqual(userReg, createRegister(8, seedRng(1n)).register,
+    "sanity: user input drove register away from seed-derived");
+
+  host.transportStop();
+  host.transportStart();
+
+  assert.equal(host.getRegister(), userReg,
+    "user pattern preserved across transport bounce");
+});
+
+test("transportStart in auto mode still re-derives register", () => {
+  // The seed-mode preservation MUST NOT leak into auto / gate modes —
+  // there the seeded-determinism contract (concept.md §Transport) stands.
+  const host = makeHost({ seed: 1, length: 8, triggerMode: "auto" });
+  host.step(0);
+  host.step(1);
+  host.transportStop();
+  host.transportStart();
+  const expectedFresh = createRegister(8, seedRng(1n)).register;
+  assert.equal(host.getRegister(), expectedFresh,
+    "auto mode re-derives register on every transport start");
 });
 
 test("setParam length — re-inits register, position preserved", () => {

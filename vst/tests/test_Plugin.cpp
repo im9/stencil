@@ -799,3 +799,318 @@ TEST_CASE("processBlock gate-mode clears animation anchor when input released",
     CHECK(proc.getCumulativeSteps() == 4);          // no advance during gate-idle
     CHECK(proc.getLastStepTimeMicros() == 0);       // animation anchor cleared
 }
+
+// ─── Sample-accurate input MIDI (ADR 007 §Audit follow-ups — RT safety) ──
+
+TEST_CASE("processBlock interleaves input MIDI with subdivision boundaries",
+          "[plugin][processBlock][input_timing][rt_safety]")
+{
+    // ADR 007 §Audit follow-ups: input events must mutate Sequencer state
+    // at their actual samplePosition within the block, not at block-start.
+    // gate-mode at 120 BPM / 48 kHz / 24000-sample block places boundaries
+    // at samples [0, 6000, 12000, 18000]. A noteOn at sample 7000 + noteOff
+    // at sample 13000 means:
+    //   - boundary 0 (0):     gate idle  → silent
+    //   - boundary 1 (6000):  gate idle  → silent
+    //   - boundary 2 (12000): gate open  → emit
+    //   - boundary 3 (18000): gate idle  → silent
+    // Block-quantized drain would open the gate before boundary 0 and
+    // close it before block end, so every boundary would emit or be
+    // silent depending on the noteOff offset within the queue — the
+    // wrong audible result either way.
+    StencilProcessor proc;
+    auto& apvts = proc.getApvts();
+    apvts.getParameter(pid::triggerMode)->setValueNotifyingHost(
+        apvts.getParameter(pid::triggerMode)->convertTo0to1(1.0f));  // gate
+    apvts.getParameter(pid::lock)->setValueNotifyingHost(1.0f);
+    apvts.getParameter(pid::density)->setValueNotifyingHost(1.0f);
+    apvts.getParameter(pid::outputGate)->setValueNotifyingHost(0.5f);
+
+    proc.prepareToPlay(48000.0, 24000);
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    ph.position.setIsPlaying(true);
+    proc.setPlayHead(&ph);
+
+    juce::AudioBuffer<float> audio(0, 24000);
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8{ 100 }), 7000);
+    midi.addEvent(juce::MidiMessage::noteOff(1, 60), 13000);
+    proc.processBlock(audio, midi);
+
+    int noteOnCount = 0;
+    int noteOnOffset = -1;
+    for (const auto meta : midi)
+    {
+        if (meta.getMessage().isNoteOn())
+        {
+            ++noteOnCount;
+            noteOnOffset = meta.samplePosition;
+        }
+    }
+    CHECK(noteOnCount == 1);          // only boundary 2 emits
+    CHECK(noteOnOffset == 12000);     // sample-accurate to the boundary
+}
+
+TEST_CASE("processBlock input MIDI at boundary samplePosition opens gate at that step",
+          "[plugin][processBlock][input_timing][rt_safety]")
+{
+    // Tie-break: an input event exactly at a boundary's sampleOffset must
+    // be applied BEFORE the boundary's processStep, so the boundary sees
+    // the mutated held-set. NoteOn at sample 6000 must open the gate at
+    // boundary 1 (sample 6000), not boundary 2.
+    //
+    // length=2, seed=0 gives a fixed register=0b11; lock=1.0 holds it
+    // through the rotation, so bit 0 stays set across all steps and every
+    // gate-open boundary emits.
+    StencilProcessor proc;
+    auto& apvts = proc.getApvts();
+    apvts.getParameter(pid::length)->setValueNotifyingHost(
+        apvts.getParameter(pid::length)->convertTo0to1(2.0f));
+    apvts.getParameter(pid::seed)->setValueNotifyingHost(
+        apvts.getParameter(pid::seed)->convertTo0to1(0.0f));
+    apvts.getParameter(pid::triggerMode)->setValueNotifyingHost(
+        apvts.getParameter(pid::triggerMode)->convertTo0to1(1.0f));  // gate
+    apvts.getParameter(pid::lock)->setValueNotifyingHost(1.0f);
+    apvts.getParameter(pid::density)->setValueNotifyingHost(1.0f);
+    apvts.getParameter(pid::outputGate)->setValueNotifyingHost(0.5f);
+
+    proc.prepareToPlay(48000.0, 24000);
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    ph.position.setIsPlaying(true);
+    proc.setPlayHead(&ph);
+
+    juce::AudioBuffer<float> audio(0, 24000);
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8{ 100 }), 6000);
+    proc.processBlock(audio, midi);
+
+    int firstNoteOnOffset = -1;
+    int noteOnCount = 0;
+    for (const auto meta : midi)
+    {
+        if (meta.getMessage().isNoteOn())
+        {
+            if (firstNoteOnOffset < 0) firstNoteOnOffset = meta.samplePosition;
+            ++noteOnCount;
+        }
+    }
+    CHECK(noteOnCount == 3);              // boundaries 1, 2, 3 emit
+    CHECK(firstNoteOnOffset == 6000);     // boundary 1 saw the noteOn
+}
+
+// ─── Editor snapshot tuple coherence (ADR 007 §Audit follow-ups — RT) ────
+
+TEST_CASE("readEditorSnapshot returns fields from a single boundary",
+          "[plugin][snapshot][rt_safety]")
+{
+    // After processBlock with deterministic params, readEditorSnapshot's
+    // fields are consistent with the per-field accessor returns. Single-
+    // thread test exercises the API shape; the cross-thread coherence
+    // guarantee comes from the version-counter (seqlock) brackets around
+    // the writes, which is encoded in PluginProcessor::publishSnapshot.
+    StencilProcessor proc;
+    auto& apvts = proc.getApvts();
+    apvts.getParameter(pid::length)->setValueNotifyingHost(
+        apvts.getParameter(pid::length)->convertTo0to1(2.0f));
+    apvts.getParameter(pid::seed)->setValueNotifyingHost(
+        apvts.getParameter(pid::seed)->convertTo0to1(0.0f));
+    apvts.getParameter(pid::lock)->setValueNotifyingHost(1.0f);
+    apvts.getParameter(pid::density)->setValueNotifyingHost(1.0f);
+
+    proc.prepareToPlay(48000.0, 24000);
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    ph.position.setIsPlaying(true);
+    proc.setPlayHead(&ph);
+
+    juce::AudioBuffer<float> audio(0, 24000);
+    juce::MidiBuffer midi;
+    proc.processBlock(audio, midi);
+
+    const auto s = proc.readEditorSnapshot();
+    CHECK(s.reg     == proc.getRegisterSnapshot());
+    CHECK(s.steps   == proc.getCumulativeSteps());
+    CHECK(s.note    == proc.getLastNote());
+    CHECK(s.active  == proc.getLastActive());
+    CHECK(s.mutated == proc.getMutatedBitSnapshot());
+    CHECK(s.steps == 4);     // 4 boundaries in this block
+    CHECK(s.active);         // length=2 seed=0 register=0b11, every step active
+}
+
+// ─── outputGate=0 emission clamp (ADR 007 §Audit follow-ups) ──────────────
+
+TEST_CASE("processBlock outputGate=0 emits noteOff at least 1 sample after noteOn",
+          "[plugin][processBlock][output_gate]")
+{
+    // ADR 007 §Audit follow-ups: with outputGate=0 the naive computation
+    // gives `gateSamples = floor(0 × stepDur + 0.5) = 0`, collapsing the
+    // noteOff onto the noteOn at the same sampleOffset. Synths render
+    // that as a click or silence. The processor floors gateSamples at 1
+    // so every active step is a well-formed note with nonzero duration.
+    StencilProcessor proc;
+    auto& apvts = proc.getApvts();
+    apvts.getParameter(pid::length)->setValueNotifyingHost(
+        apvts.getParameter(pid::length)->convertTo0to1(2.0f));
+    apvts.getParameter(pid::seed)->setValueNotifyingHost(
+        apvts.getParameter(pid::seed)->convertTo0to1(0.0f));
+    apvts.getParameter(pid::lock)->setValueNotifyingHost(1.0f);
+    apvts.getParameter(pid::density)->setValueNotifyingHost(1.0f);
+    apvts.getParameter(pid::outputGate)->setValueNotifyingHost(0.0f);
+
+    proc.prepareToPlay(48000.0, 24000);
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    ph.position.setIsPlaying(true);
+    proc.setPlayHead(&ph);
+
+    juce::AudioBuffer<float> audio(0, 24000);
+    juce::MidiBuffer midi;
+    proc.processBlock(audio, midi);
+
+    int firstNoteOnOffset = -1;
+    int firstNoteOffOffset = -1;
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOn() && firstNoteOnOffset < 0)
+            firstNoteOnOffset = meta.samplePosition;
+        else if (m.isNoteOff() && firstNoteOffOffset < 0)
+            firstNoteOffOffset = meta.samplePosition;
+    }
+    REQUIRE(firstNoteOnOffset >= 0);
+    REQUIRE(firstNoteOffOffset >= 0);
+    CHECK(firstNoteOffOffset >= firstNoteOnOffset + 1);
+}
+
+// ─── Seed-mode register preservation across transport bounce ─────────────
+
+TEST_CASE("processBlock seed-mode user-written register survives transport bounce",
+          "[plugin][processBlock][trigger_mode][seed_persistence]")
+{
+    // ADR 007 §Audit follow-ups: in triggerMode = seed, the user writes
+    // bits into the register via input notes. The Issue 2 start-edge
+    // currently re-derives register from (seed, length) on every
+    // play-press, discarding that pattern. The fix: when seedActivated_
+    // is true at the start edge, skip the re-derive so the user's loop
+    // resumes across a stop / start cycle.
+    StencilProcessor proc;
+    auto& apvts = proc.getApvts();
+    apvts.getParameter(pid::triggerMode)->setValueNotifyingHost(
+        apvts.getParameter(pid::triggerMode)->convertTo0to1(2.0f));  // seed
+
+    proc.prepareToPlay(48000.0, 512);
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    ph.position.setIsPlaying(false);
+    proc.setPlayHead(&ph);
+
+    // Sync: stopped block flushes initial state.
+    {
+        juce::AudioBuffer<float> audio(0, 512);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+
+    // User writes the register: seed-mode noteOn shifts a 1 into the
+    // head; multiple noteOns drive the register away from seed-derived.
+    {
+        juce::AudioBuffer<float> audio(0, 512);
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8{ 100 }), 0);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 61, juce::uint8{ 100 }), 100);
+        midi.addEvent(juce::MidiMessage::noteOn(1, 62, juce::uint8{ 100 }), 200);
+        proc.processBlock(audio, midi);
+    }
+    REQUIRE(proc.getSequencerForTest().isSeedActivated());
+    const auto regAfterUserInput = proc.getSequencerForTest().getRegister();
+
+    // Press play.
+    ph.position.setIsPlaying(true);
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    {
+        juce::AudioBuffer<float> audio(0, 512);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+
+    // Press stop.
+    ph.position.setIsPlaying(false);
+    {
+        juce::AudioBuffer<float> audio(0, 512);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+
+    // Press play again — start-edge MUST NOT re-derive register, because
+    // the user's seed-driven pattern is still authoritative.
+    ph.position.setIsPlaying(true);
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    {
+        juce::AudioBuffer<float> audio(0, 512);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+
+    // The register the player hears at the second play must equal the
+    // pattern they wrote, not the seed-derived initial state.
+    CHECK(proc.getSequencerForTest().getRegister() == regAfterUserInput);
+    CHECK(proc.getSequencerForTest().isSeedActivated());
+}
+
+TEST_CASE("processBlock auto-mode register still re-derives on transport bounce",
+          "[plugin][processBlock][trigger_mode][seed_persistence]")
+{
+    // The seed-mode preservation must NOT leak into auto / gate modes —
+    // there the seeded-determinism contract (concept.md §Transport)
+    // stands and every transport-start re-rolls. Equivalent to the
+    // existing transport_reset case: after run 1, stop, run 2 at the
+    // same (seed, length) plays the *same* loop, so the post-run-2
+    // register matches post-run-1.
+    StencilProcessor proc;
+    auto& apvts = proc.getApvts();
+    // Default triggerMode = auto.
+    apvts.getParameter(pid::lock)->setValueNotifyingHost(0.5f);
+    apvts.getParameter(pid::density)->setValueNotifyingHost(1.0f);
+
+    proc.prepareToPlay(48000.0, 24000);
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    ph.position.setIsPlaying(true);
+    proc.setPlayHead(&ph);
+
+    // Run 1: one quarter from a fresh start.
+    {
+        juce::AudioBuffer<float> audio(0, 24000);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+    const auto regAfterRun1 = proc.getSequencerForTest().getRegister();
+
+    // Stop, then start again at ppq=0.
+    ph.position.setIsPlaying(false);
+    {
+        juce::AudioBuffer<float> audio(0, 24000);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+    ph.position.setIsPlaying(true);
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    {
+        juce::AudioBuffer<float> audio(0, 24000);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+    // Run 2 starts from re-derived register and runs the same loop →
+    // ends in the same state as run 1.
+    CHECK(proc.getSequencerForTest().getRegister() == regAfterRun1);
+    // seedActivated_ stays false in auto mode.
+    CHECK_FALSE(proc.getSequencerForTest().isSeedActivated());
+}

@@ -979,12 +979,20 @@ Tag legend: `(code, vst)` / `(code, m4l)` / `(doc)`.
       just-emitted bit at index 0 in salmon when shiftAndFlip flipped
       the consumed LSB, with the post-`d87f97b` pre-shift snapshot
       semantics.)*
-- [ ] **`m4l` `setParam` flush misses `outputChannel`** (code, m4l)
+- [x] **`m4l` `setParam` flush misses `outputChannel`** (code, m4l)
       — vst flushes on `outputChannel` (this ADR's hung-note
       discipline fix); m4l-side `host.ts:setParam`'s `flushKeys`
       array omits it. Symmetrize. *(`mode` dropped from this item
       on 2026-05-16 when m4l caught up to the single-dispatch spec;
-      the parameter no longer exists on either side.)*
+      the parameter no longer exists on either side.)* *(Resolved
+      moot in `233b504`: the entire `flushKeys` array + `flushNotesOn`
+      machinery was removed from `host.ts` as dead code — m4l's host
+      never tracked sounding notes (per-step noteOff scheduling lives
+      at the bridge via `scheduleAfter`, with `ev.channel` captured
+      by closure), so a mid-note `outputChannel` change cannot orphan
+      a noteOff. The vst-side flush is a different defensive choice
+      — cut in-flight notes when emission semantics shift — and the
+      asymmetry is intentional.)*
 - [x] **`rangeLo` / `rangeHi` clamp direction differs target-to-target**
       (doc) — vst clamps the *other* side (APVTS UX expects
       not-just-moved side to follow); m4l clamps the side the user
@@ -1026,15 +1034,19 @@ Tag legend: `(code, vst)` / `(code, m4l)` / `(doc)`.
 
 ### Real-time safety
 
-- [ ] **Audio-thread vector allocation churn** (code, vst, RT) —
+- [x] **Audio-thread vector allocation churn** (code, vst, RT) —
       `pendingNoteOffs_`, Sequencer's `heldInputs_`, and the
       `std::vector<StepBoundary>` returned by `detectBoundaries`
       all grow on the audio thread without pre-reservation.
       Reserve in `prepareToPlay` (e.g. 64 / 16 / max-steps-per-block)
       and refactor `detectBoundaries` to take a
       `std::vector<StepBoundary>&` output parameter so the buffer
-      can be reused across blocks.
-- [ ] **Editor snapshot tuple coherence** (code, vst, RT) — four
+      can be reused across blocks. *(`pendingNoteOffs_` reserves 64 +
+      `boundariesBuffer_` reserves 16 in `prepareToPlay`; `heldInputs_`
+      reserves 16 in `Sequencer` ctor; `detectBoundaries` now has both
+      an out-param overload (used by `processBlock` against a member
+      buffer) and the original return-value overload for tests.)*
+- [x] **Editor snapshot tuple coherence** (code, vst, RT) — four
       independent `std::atomic` snapshots (`registerSnapshot_`,
       `cumulativeStepsSnapshot_`, `lastNoteSnapshot_`,
       `lastActiveSnapshot_`) all use `memory_order_relaxed`, so
@@ -1044,8 +1056,15 @@ Tag legend: `(code, vst)` / `(code, m4l)` / `(doc)`.
       `std::atomic<Snapshot>` (≤16 bytes — lock-free on x86_64 /
       arm64) with `release` store / `acquire` load, or use a
       seqlock pattern via a single `std::atomic<uint32_t>` version
-      counter.
-- [ ] **Input MIDI is block-quantized, not sample-accurate** (code,
+      counter. *(Resolved via seqlock: `snapshotVersion_` brackets
+      audio-thread writes (bumped to odd before stores, back to
+      even after) in `publishSnapshot`; editor calls
+      `readEditorSnapshot()` which spins until it observes a stable
+      even version. Per-field accessors retained as relaxed loads
+      for tests / single-field UI reads. RingView paint + timer
+      switched to `readEditorSnapshot()` for coherent reg / note /
+      mutated / steps tuples.)*
+- [x] **Input MIDI is block-quantized, not sample-accurate** (code,
       vst, RT) — `processBlock` drains every MIDI input message
       into Sequencer before subdivision-boundary detection, so
       `gate` / `seed` `triggerMode` events land at block-start
@@ -1054,11 +1073,17 @@ Tag legend: `(code, vst)` / `(code, m4l)` / `(doc)`.
       held-input / seed-active state mutates at the correct moment
       within the block. §MIDI processing already promises
       sample-accurate *output* timing — extend the same contract
-      to input.
+      to input. *(processBlock now interleaves input events with
+      boundaries via a single cursor over the input MidiBuffer:
+      events with `samplePosition <= b.sampleOffset` drain before
+      the boundary's processStep, tie-breaks at equal sample
+      positions apply to the boundary. Non-playing fallback keeps
+      the bulk drain so seed-mode pattern entry while transport
+      is stopped still routes.)*
 
 ### Edge cases / behavior
 
-- [ ] **`outputGate = 0.0` produces zero-length notes** (code,
+- [x] **`outputGate = 0.0` produces zero-length notes** (code,
       vst + m4l, design) — at the APVTS lower bound,
       `gateSamples = floor(0 × stepDur + 0.5) = 0` so noteOff
       lands at the same `sampleOffset` as noteOn. Most synths
@@ -1066,15 +1091,27 @@ Tag legend: `(code, vst)` / `(code, m4l)` / `(doc)`.
       `gateSamples >= 1` at the scheduling site, or raise the
       APVTS lower bound (e.g. `0.01`). Decision needed —
       "outputGate=0 = mute step" might be a valid creative use
-      case worth preserving.
-- [ ] **`triggerMode = seed` user-played register wipe on transport
+      case worth preserving. *(Resolved via option 1: vst clamps
+      `gateSamples = max(1, floor(outputGate × stepDur + 0.5))`
+      at the scheduling site in `PluginProcessor::processBlock`;
+      m4l clamps `delaySteps = max(MIN_GATE_FRACTION, outputGate)`
+      with `MIN_GATE_FRACTION = 0.01` in `host.ts:step()`. Param
+      ranges unchanged — defense lives at emission. "0 = mute
+      step" was not an advertised feature; density + bypass cover
+      that need.)*
+- [x] **`triggerMode = seed` user-played register wipe on transport
       start** (code, vst + m4l, design) — the Issue 2 start-edge
       reset re-derives register from `seed` APVTS param,
       discarding any pattern the user wrote via input notes.
       Matches m4l, but surprises live performers. Either skip the
       reset when `triggerMode == Seed && seedActivated_`, or add
       register persistence to APVTS so the input-driven pattern
-      survives transport bounces.
+      survives transport bounces. *(Resolved via option 1: when
+      `triggerMode == Seed && seedActivated_`, both targets skip
+      the start-edge `sequencer_.reset()` / `freshRegister()` and
+      preserve `seedActivated_` across `onTransportStop()` so the
+      flag survives the bounce. Auto / gate modes still re-derive
+      every start per the seeded-determinism contract.)*
 - [x] **Same-millisecond double-click ROLL is a no-op** (code, vst)
       — `RingView::mouseDown`, `ActionsView::onRoll`, and the
       right-rail `rollBtn_` all seeded a fresh rng from

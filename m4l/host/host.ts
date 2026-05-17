@@ -60,6 +60,13 @@ function noteKey(pitch: number, channel: number): string {
   return `${pitch}:${channel}`;
 }
 
+// ADR 007 §Audit follow-ups — minimum noteOff delay as a fraction of a
+// step, applied at emission so outputGate=0 never collapses noteOff onto
+// noteOn (synths render that as a click or silence). 0.01 = 1% of a
+// step ≈ 1.25 ms at 120 BPM / 16th — short enough to read as a "very
+// staccato" note, long enough that any synth or scheduler can render it.
+const MIN_GATE_FRACTION = 0.01;
+
 // ParamKey is the union of all HostParams scalar keys (excludes the
 // range-tuple setRange() path). Used for generic setParam(key, value).
 export type ParamKey = keyof HostParams;
@@ -182,11 +189,18 @@ export class TmHost {
         channel: ch,
         delaySteps: 0,
       });
+      // ADR 007 §Audit follow-ups — outputGate=0 must not collapse
+      // noteOff onto noteOn (synths render that as a click or silence).
+      // Floor the scheduled distance at a tiny but nonzero fraction so
+      // every active step is a well-formed note. Symmetric with vst's
+      // `gateSamples = max(1, ...)` in PluginProcessor. The cap was
+      // never an advertised "0 = mute step" feature; users have density
+      // and bypass for muting.
       events.push({
         type: "noteOff",
         pitch: note,
         channel: ch,
-        delaySteps: this.params.outputGate,
+        delaySteps: Math.max(MIN_GATE_FRACTION, this.params.outputGate),
       });
     }
 
@@ -222,19 +236,32 @@ export class TmHost {
   // concept.md §Transport: every transport start re-derives the register
   // from (seed, length) — seeded determinism is a core contract. Stop alone
   // preserves register state for inspection, but stop+start re-rolls.
+  // EXCEPT: in triggerMode = "seed" with seedActivated, the user has
+  // written the register via input notes; preserve that pattern across
+  // the bounce (ADR 007 §Audit follow-ups — seed-mode register
+  // preservation; matches the vst-side skip in PluginProcessor's
+  // start-edge handler).
   transportStart(): NoteEvent[] {
-    const init = this.freshRegister();
-    this.register = init.register;
-    this.rng = init.rng;
+    const preserveUserPattern =
+      this.params.triggerMode === "seed" && this.seedActivated;
+    if (!preserveUserPattern) {
+      const init = this.freshRegister();
+      this.register = init.register;
+      this.rng = init.rng;
+      this.seedActivated = false;
+    }
     this.position = 0;
     this.heldInputs.clear();
-    this.seedActivated = false;
     return [];
   }
 
   transportStop(): NoteEvent[] {
     this.heldInputs.clear();
-    this.seedActivated = false;
+    // Preserve seedActivated when triggerMode === "seed" so the user-
+    // written pattern resumes after the next transportStart. In auto /
+    // gate the flag clears as before.
+    if (this.params.triggerMode !== "seed")
+      this.seedActivated = false;
     this.position = 0;
     return [];
   }

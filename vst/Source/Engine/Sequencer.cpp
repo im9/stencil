@@ -20,15 +20,16 @@ double subdivisionsPerQuarter(Subdivision s)
 
 // ─── detectBoundaries ────────────────────────────────────────────────────
 
-std::vector<StepBoundary> detectBoundaries(double startPpq,
-                                            double bpm,
-                                            double sampleRate,
-                                            int blockSamples,
-                                            Subdivision subdivision)
+void detectBoundaries(std::vector<StepBoundary>& out,
+                      double startPpq,
+                      double bpm,
+                      double sampleRate,
+                      int blockSamples,
+                      Subdivision subdivision)
 {
-    std::vector<StepBoundary> result;
+    out.clear();
     if (blockSamples <= 0 || bpm <= 0.0 || sampleRate <= 0.0)
-        return result;
+        return;
 
     const double stepPpq = 1.0 / subdivisionsPerQuarter(subdivision);
     const double samplesPerPpq = (60.0 / bpm) * sampleRate;
@@ -52,9 +53,19 @@ std::vector<StepBoundary> detectBoundaries(double startPpq,
             break;
         if (sampleOffset < 0)
             sampleOffset = 0;
-        result.push_back(StepBoundary{ sampleOffset, N });
+        out.push_back(StepBoundary{ sampleOffset, N });
         ++N;
     }
+}
+
+std::vector<StepBoundary> detectBoundaries(double startPpq,
+                                            double bpm,
+                                            double sampleRate,
+                                            int blockSamples,
+                                            Subdivision subdivision)
+{
+    std::vector<StepBoundary> result;
+    detectBoundaries(result, startPpq, bpm, sampleRate, blockSamples, subdivision);
     return result;
 }
 
@@ -66,6 +77,11 @@ Sequencer::Sequencer(const SequencerParams& p)
     : params_(p), register_(0), lastEmittedRegister_(0),
       rng_{ { 0, 0, 0, 0 } }, position_(0), seedActivated_(false)
 {
+    // ADR 007 §Audit follow-ups — pre-reserve a realistic held-input
+    // capacity so onInputNoteOn doesn't allocate on the audio thread.
+    // 16 = typical max polyphony a player would hold simultaneously in
+    // gate / seed mode (one full hand + a few sustained notes).
+    heldInputs_.reserve(16);
     recreateRegister();
 }
 
@@ -207,7 +223,13 @@ StepOutput Sequencer::processStep()
 void Sequencer::onTransportStop()
 {
     heldInputs_.clear();
-    seedActivated_ = false;
+    // Preserve seedActivated_ when triggerMode == Seed so the user's
+    // input-driven register pattern survives the next transport start
+    // (ADR 007 §Audit follow-ups — seed-mode register preservation).
+    // In auto / gate modes there is no user-written pattern to protect,
+    // so the flag clears as before.
+    if (params_.triggerMode != TriggerMode::Seed)
+        seedActivated_ = false;
     position_ = 0;
     // Register intentionally preserved (resume-the-loop).
 }

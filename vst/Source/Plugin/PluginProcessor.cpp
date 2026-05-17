@@ -40,7 +40,47 @@ StencilProcessor::StencilProcessor()
     // empty ring even though the engine already has a non-zero register.
     // lastEmittedRegister == register here (Sequencer ctor initializes
     // it to the freshly-created register).
-    registerSnapshot_.store(sequencer_.getLastEmittedRegister(), std::memory_order_relaxed);
+    publishSnapshot(sequencer_.getLastEmittedRegister(),
+                    /*steps*/ 0, /*note*/ 60, /*active*/ false, /*mutated*/ -1);
+}
+
+void StencilProcessor::publishSnapshot(engine::RegisterBits reg, int steps,
+                                       int note, bool active, int mutated)
+{
+    // Seqlock writer half: bump version to odd to flag in-flight write,
+    // then store fields under relaxed (the version's release ordering
+    // commits the field stores), then bump to even to mark complete.
+    const auto v = snapshotVersion_.load(std::memory_order_relaxed);
+    snapshotVersion_.store(v + 1, std::memory_order_release);
+    snapshotReg_.store(reg, std::memory_order_relaxed);
+    snapshotSteps_.store(steps, std::memory_order_relaxed);
+    snapshotNote_.store(note, std::memory_order_relaxed);
+    snapshotActive_.store(active, std::memory_order_relaxed);
+    snapshotMutated_.store(mutated, std::memory_order_relaxed);
+    snapshotVersion_.store(v + 2, std::memory_order_release);
+}
+
+StencilProcessor::EditorSnapshot StencilProcessor::readEditorSnapshot() const
+{
+    // Seqlock reader: spin while an in-flight write is observed (odd
+    // version) or the version changed during the field reads. Writer
+    // is wait-free and finishes in ~6 atomic ops, so 1–2 iterations is
+    // the steady-state cost under contention.
+    EditorSnapshot s;
+    while (true)
+    {
+        const auto v1 = snapshotVersion_.load(std::memory_order_acquire);
+        if ((v1 & 1u) == 0)
+        {
+            s.reg     = snapshotReg_.load(std::memory_order_relaxed);
+            s.steps   = snapshotSteps_.load(std::memory_order_relaxed);
+            s.note    = snapshotNote_.load(std::memory_order_relaxed);
+            s.active  = snapshotActive_.load(std::memory_order_relaxed);
+            s.mutated = snapshotMutated_.load(std::memory_order_relaxed);
+            const auto v2 = snapshotVersion_.load(std::memory_order_acquire);
+            if (v1 == v2) return s;
+        }
+    }
 }
 
 StencilProcessor::~StencilProcessor()
@@ -53,8 +93,15 @@ void StencilProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
 {
     sampleRate_ = sampleRate;
     pendingNoteOffs_.clear();
+    // ADR 007 §Audit follow-ups — pre-reserve audio-thread buffers so the
+    // typical processBlock path does no allocation. Sizes are generous-
+    // but-bounded: 64 in-flight noteOffs covers any realistic sustained-
+    // gate scenario at sub-32nd subdivisions, and 16 boundaries per block
+    // covers the worst case (32nd @ high bpm with large blockSamples).
+    pendingNoteOffs_.reserve(64);
+    boundariesBuffer_.reserve(16);
     wasPlaying_ = false;
-    mutatedBitSnapshot_.store(-1, std::memory_order_relaxed);
+    snapshotMutated_.store(-1, std::memory_order_relaxed);
 }
 
 void StencilProcessor::releaseResources()
@@ -86,8 +133,12 @@ void StencilProcessor::setStateInformation(const void* data, int sizeInBytes)
             // identical-state restores (no listener fires) still flush.
             flushPendingRequested_.store(true, std::memory_order_release);
             // Clear the salmon highlight: the loaded state has no recent
-            // mutation step to point at.
-            mutatedBitSnapshot_.store(-1, std::memory_order_relaxed);
+            // mutation step to point at. Single-field write — leaves the
+            // other snapshot fields untouched (they're refreshed on the
+            // next processBlock step). seqlock invariant tolerates this
+            // because the message-thread store happens before audio
+            // resumes; readers cannot see a torn tuple in practice.
+            snapshotMutated_.store(-1, std::memory_order_relaxed);
         }
     }
 }
@@ -206,9 +257,9 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
         // Reset cumulative step counter so the history strip realigns
         // with the new (seed, length) pair. Otherwise ROLL would
         // advance the visual position past the loop boundary.
-        cumulativeStepsSnapshot_.store(0, std::memory_order_relaxed);
-        registerSnapshot_.store(sequencer_.getLastEmittedRegister(), std::memory_order_relaxed);
-        mutatedBitSnapshot_.store(-1, std::memory_order_relaxed);
+        publishSnapshot(sequencer_.getLastEmittedRegister(),
+                        /*steps*/ 0, /*note*/ 60,
+                        /*active*/ false, /*mutated*/ -1);
         // Drop the playhead anchor: no recent step → RingView shows
         // the static (rotation 0) frame until the next emission.
         lastStepTimeMicros_.store(0, std::memory_order_relaxed);
@@ -261,33 +312,52 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
     // flushed any sounding notes.
     if (!wasPlaying_ && isPlaying)
     {
-        sequencer_.reset();
-        cumulativeStepsSnapshot_.store(0, std::memory_order_relaxed);
-        registerSnapshot_.store(sequencer_.getLastEmittedRegister(), std::memory_order_relaxed);
-        mutatedBitSnapshot_.store(-1, std::memory_order_relaxed);
+        // ADR 007 §Audit follow-ups — seed-mode register preservation.
+        // Skip the re-derive when the user has written a pattern via
+        // input notes (triggerMode == Seed && seedActivated_); the
+        // seeded-determinism contract still governs auto / gate.
+        const bool preserveUserPattern =
+            params.triggerMode == engine::TriggerMode::Seed
+            && sequencer_.isSeedActivated();
+        if (!preserveUserPattern)
+            sequencer_.reset();
+        publishSnapshot(sequencer_.getLastEmittedRegister(),
+                        /*steps*/ 0, /*note*/ 60,
+                        /*active*/ false, /*mutated*/ -1);
         lastStepTimeMicros_.store(0, std::memory_order_relaxed);
     }
 
     // Drain any noteOffs scheduled to fire in this block.
     drainPendingNoteOffs(outMidi, blockSamples);
 
-    // Route input MIDI: filter inputChannel before forwarding to sequencer.
-    for (const auto meta : midi)
+    // ADR 007 §Audit follow-ups — sample-accurate input MIDI. When playing,
+    // input events are interleaved with subdivision boundaries below so a
+    // gate / seed event lands in Sequencer state at its actual
+    // samplePosition rather than being block-quantized to offset 0. When
+    // NOT playing there are no boundaries to interleave against, so a bulk
+    // drain at block-start is the only correct behavior (seed-mode pattern
+    // entry while transport is stopped).
+    auto routeInputMessage = [this](const juce::MidiMessage& msg)
     {
-        const auto msg = meta.getMessage();
         if (msg.isNoteOn())
             sequencer_.onInputNoteOn(msg.getNoteNumber(), msg.getChannel());
         else if (msg.isNoteOff())
             sequencer_.onInputNoteOff(msg.getNoteNumber(), msg.getChannel());
         // Other MIDI messages (CC, pitch bend, etc.) are dropped — Stencil
         // is a generator, not a passthrough.
+    };
+
+    if (!isPlaying)
+    {
+        for (const auto meta : midi)
+            routeInputMessage(meta.getMessage());
     }
 
     // Detect subdivision boundaries and process each step.
     if (isPlaying)
     {
-        const auto boundaries = engine::detectBoundaries(
-            startPpq, bpm, sampleRate_, blockSamples, params.subdivision);
+        engine::detectBoundaries(boundariesBuffer_, startPpq, bpm,
+                                 sampleRate_, blockSamples, params.subdivision);
 
         const int stepDur = stepDurationSamples(bpm, params.subdivision);
 
@@ -303,8 +373,23 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
                                       std::memory_order_relaxed);
         }
 
-        for (const auto& b : boundaries)
+        // Interleave cursor over the input MIDI buffer. Input events with
+        // samplePosition ≤ current boundary's sampleOffset are drained
+        // BEFORE the boundary's processStep so gate / seed state at the
+        // boundary reflects events that already arrived. Tie-breaks at
+        // equal sampleOffset open the gate for that step (input event is
+        // logically "at" the boundary, not after it).
+        auto midiIt = midi.cbegin();
+        const auto midiEnd = midi.cend();
+
+        for (const auto& b : boundariesBuffer_)
         {
+            while (midiIt != midiEnd && (*midiIt).samplePosition <= b.sampleOffset)
+            {
+                routeInputMessage((*midiIt).getMessage());
+                ++midiIt;
+            }
+
             // Gate-mode silence: in triggerMode = gate with the held-set
             // empty, Sequencer::processStep is a no-op (register / rng
             // frozen per ADR 007 §MIDI processing). Mirror that freeze
@@ -326,10 +411,12 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
 
             const engine::StepOutput o = sequencer_.processStep();
 
-            // Publish editor snapshots immediately after each step so the
+            // Publish editor snapshot immediately after each step so the
             // ring view, history strip, and center "fraction / note" text
-            // see the freshest state. ADR 007 §Threading: relaxed atomic
-            // store; eventually-consistent for the editor.
+            // see the freshest state. ADR 007 §Threading + §Audit follow-
+            // ups (tuple coherence): all five fields are bracketed under
+            // snapshotVersion_ so the editor's readEditorSnapshot sees
+            // a tuple captured at this boundary, never a torn mix.
             //
             // Pre-shift register (Sequencer::getLastEmittedRegister) is
             // what the editor renders so bit 0 == "bit just emitted" sits
@@ -337,11 +424,25 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
             // Post-shift register is only used here to detect the
             // shiftAndFlip mutation for the salmon highlight.
             const auto postStepReg = sequencer_.getRegister();
-            registerSnapshot_.store(sequencer_.getLastEmittedRegister(),
-                                    std::memory_order_relaxed);
-            cumulativeStepsSnapshot_.fetch_add(1, std::memory_order_relaxed);
-            lastNoteSnapshot_.store(o.note, std::memory_order_relaxed);
-            lastActiveSnapshot_.store(o.active, std::memory_order_relaxed);
+
+            // Mutated bit: shiftAndFlip writes the (possibly flipped) old
+            // LSB into the new MSB. With the pre-shift snapshot, that
+            // flipped bit is visible at bit 0 of the displayed register
+            // (the just-emitted bit), so the editor highlights index 0
+            // salmon when a flip happened. preStepReg == postStepReg
+            // means the seed-active branch took (no shiftAndFlip), so no
+            // mutation either way.
+            const int length = params.length;
+            const auto oldBit0 = preStepReg & 1u;
+            const auto newMsb = length > 0
+                ? (postStepReg >> (length - 1)) & 1u
+                : 0u;
+            const int mutated = (preStepReg != postStepReg && oldBit0 != newMsb)
+                ? 0
+                : -1;
+            const int newSteps = snapshotSteps_.load(std::memory_order_relaxed) + 1;
+            publishSnapshot(sequencer_.getLastEmittedRegister(),
+                            newSteps, o.note, o.active, mutated);
 
             // γ-anticipation playhead anchor: timestamp this boundary so
             // RingView can compute (now - lastStepTime) / stepDuration
@@ -351,23 +452,6 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
                 juce::Time::getMillisecondCounterHiRes() * 1000.0);
             lastStepTimeMicros_.store(nowUs, std::memory_order_relaxed);
 
-            // Mutated bit: shiftAndFlip writes the (possibly flipped) old
-            // LSB into the new MSB. With the pre-shift snapshot in
-            // registerSnapshot_, that flipped bit is visible at bit 0 of
-            // the displayed register (the just-emitted bit), so the
-            // editor highlights index 0 salmon when a flip happened.
-            // preStepReg == postStepReg means the seed-active branch
-            // took (no shiftAndFlip), so no mutation either way.
-            const int length = params.length;
-            const auto oldBit0 = preStepReg & 1u;
-            const auto newMsb = length > 0
-                ? (postStepReg >> (length - 1)) & 1u
-                : 0u;
-            const int mutated = (preStepReg != postStepReg && oldBit0 != newMsb)
-                ? 0
-                : -1;
-            mutatedBitSnapshot_.store(mutated, std::memory_order_relaxed);
-
             if (!o.active)
                 continue;
 
@@ -376,8 +460,15 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
                                           static_cast<juce::uint8>(o.velocity)),
                 b.sampleOffset);
 
-            const int gateSamples =
-                static_cast<int>(std::floor(params.outputGate * stepDur + 0.5));
+            // ADR 007 §Audit follow-ups — outputGate=0 must not collapse
+            // noteOff onto noteOn (synths render that as a click or
+            // silence). Floor the scheduled distance at 1 sample so the
+            // emission is always a well-formed note event with nonzero
+            // duration. "outputGate=0 = silent step" was never an
+            // advertised feature; if the user wants mute, they have
+            // bypass and density.
+            const int gateSamples = std::max(1,
+                static_cast<int>(std::floor(params.outputGate * stepDur + 0.5)));
             const int noteOffOffset = b.sampleOffset + gateSamples;
             if (noteOffOffset < blockSamples)
             {
@@ -389,6 +480,15 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
                 pendingNoteOffs_.push_back(
                     PendingNoteOff{ noteOffOffset - blockSamples, o.note, o.channel });
             }
+        }
+
+        // Drain input events past the final boundary so held / seed state
+        // is correct for the NEXT block. Without this, a noteOn / noteOff
+        // landing after the last boundary would never reach Sequencer.
+        while (midiIt != midiEnd)
+        {
+            routeInputMessage((*midiIt).getMessage());
+            ++midiIt;
         }
     }
 

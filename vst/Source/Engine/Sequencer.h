@@ -67,8 +67,22 @@ struct StepBoundary
 };
 
 // Detect subdivision boundaries within [startPpq, startPpq + blockPpqDuration).
-// Returns boundaries in increasing sampleOffset order. Empty when blockSamples
-// ≤ 0 or bpm ≤ 0 or sampleRate ≤ 0.
+// Boundaries are emitted in increasing sampleOffset order. Empty when
+// blockSamples ≤ 0 or bpm ≤ 0 or sampleRate ≤ 0.
+//
+// Out-param overload — the audio-thread call site reuses a single buffer
+// across processBlock invocations so the vector grows only on the first
+// few blocks and never re-allocates afterward. The buffer is cleared
+// then populated; capacity is preserved.
+void detectBoundaries(std::vector<StepBoundary>& out,
+                      double startPpq,
+                      double bpm,
+                      double sampleRate,
+                      int blockSamples,
+                      Subdivision subdivision);
+
+// Convenience overload returning a fresh vector. Not for audio-thread use —
+// allocates per call. Kept for test ergonomics.
 std::vector<StepBoundary> detectBoundaries(double startPpq,
                                             double bpm,
                                             double sampleRate,
