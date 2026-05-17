@@ -27,3 +27,7 @@ m4l/Stencil*Project/
 # (Freeze) step in Max as part of `make release` (see ADR 006 §Release
 # artifact production). Regenerated per release; not committed.
 dist/
+
+# Claude Code — local runtime state (per-machine, per-process)
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
