@@ -1,0 +1,17 @@
+Installation complete.
+
+Stencil is now available system-wide. Where to find it:
+
+    Logic Pro       AU MIDI FX slot on a software-instrument track
+    Bitwig Studio   Note FX slot, as VST3 or CLAP, before an instrument
+    Reaper          VST3 or CLAP in any MIDI / FX chain
+    Studio One      VST3 in the MIDI fx slot
+
+Your DAW may need a plug-in rescan or restart before Stencil appears in the browser.
+
+Stencil is a MIDI generator — chain it into a synth (or pair it with Pointsman for scale-locked output) to hear it.
+
+Project: https://github.com/im9/stencil
+Support: https://github.com/im9/stencil/issues
+
+Thank you for installing Stencil.

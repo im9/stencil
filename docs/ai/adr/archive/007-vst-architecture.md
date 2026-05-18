@@ -78,6 +78,17 @@ and earlier 2026-05-16 entries is closed; the only remaining
 intentional difference is the click-to-edit affordance
 (m4l setBit vs vst click-to-ROLL), documented in §Editor
 §FREEZE / ROLL semantics.
+**Revised**: 2026-05-18 — §Distribution section added covering the
+dual-artifact (DMG + PKG) macOS release pipeline. DMG =
+drag-to-install (user picks folder); PKG = signed system-wide
+installer with per-format choice (VST3 / AU / CLAP) and en/ja
+localized welcome / license / conclusion screens. The §Out of
+scope "Code signing / notarization / installer" deferral is
+narrowed to just the paid distribution channel question (gumroad
+/ itch / own site / GH Release) — the artifact layer is now in
+scope and shipped via `vst/scripts/{codesign,notarize,build-dmg,
+build-pkg}.sh`. §Implementation checklist gains Phase 6 (distri-
+bution); Phases 1–5 stay Implemented.
 
 This ADR specifies the `vst/` target's architecture: the plugin formats
 shipped, the C++17 source layout (`Engine` / `Plugin` / `Editor`), the
@@ -676,6 +687,89 @@ Per CLAUDE.md "GUI / UI components":
 - Pixel layout, font choice, color palette match inboil; verified
   side-by-side against the inboil screenshot.
 
+## Distribution
+
+macOS-only for v0.1 (Windows / Linux deferred — see §Out of scope).
+Two artifacts ship side by side per release; the split serves two
+distinct user paths.
+
+| Artifact            | Use case                                                                          | Build script                  |
+|---------------------|-----------------------------------------------------------------------------------|-------------------------------|
+| `dist/Stencil.dmg`  | Drag-to-install. User chooses target folder (custom Audio Plug-Ins path, NAS, segregated dev/release directories). | `vst/scripts/build-dmg.sh`    |
+| `dist/Stencil.pkg`  | System-wide installer with admin auth. Bundles land in `/Library/Audio/Plug-Ins/{VST3,Components,CLAP}/`. Per-format opt-out in the Customize step. | `vst/scripts/build-pkg.sh`    |
+
+Both contain the same signed-and-notarized AU + VST3 + CLAP
+bundles. The pkg installer is **system-wide only** (`enable_local
+System="true"` only); two-domain configurations expose a
+"Change Install Location..." button that reads as arbitrary-folder
+selection but only flips between domains, producing a confusing
+back-loop UI. Users who want custom placement use the dmg.
+
+### Pipeline
+
+`make release-vst` at the repo root chains:
+
+```
+make build         # configure + build (Release) — VST3 + AU + CLAP + Standalone
+codesign.sh        # Developer ID Application signing of each bundle (hardened runtime)
+notarize.sh        # notarytool submit each bundle + staple
+build-dmg.sh       # pack signed bundles into dist/Stencil.dmg
+                   #   (also signs / notarizes / staples the dmg itself)
+build-pkg.sh       # per-format pkgbuild (vst3 / au / clap)
+                   #   → productbuild --distribution distribution.xml
+                   #   → productsign Developer ID Installer
+                   #   → notarytool submit + staple dist/Stencil.pkg
+```
+
+Both signing paths require:
+
+- `DEVELOPER_TEAM_ID` env var (Apple Developer team identifier). The
+  same value selects both the "Developer ID Application" cert
+  (bundles + dmg) and the "Developer ID Installer" cert (pkg).
+- A `notarytool` keychain profile named `im9-notary` (shared across
+  im9 plugins; override via `NOTARY_PROFILE`). One-time setup:
+  `xcrun notarytool store-credentials im9-notary --apple-id ...
+  --team-id ... --password <app-specific>`.
+
+Both artifacts' versions are parsed from `vst/CMakeLists.txt
+project(Stencil VERSION ...)` — single source of truth, the same
+line the release skill bumps.
+
+### Per-format pkg identifiers
+
+| Format | Identifier            | Install location                          |
+|--------|-----------------------|-------------------------------------------|
+| VST3   | `fm.im9.stencil.vst3` | `/Library/Audio/Plug-Ins/VST3/`           |
+| AU     | `fm.im9.stencil.au`   | `/Library/Audio/Plug-Ins/Components/`     |
+| CLAP   | `fm.im9.stencil.clap` | `/Library/Audio/Plug-Ins/CLAP/`           |
+
+These three component pkgs are wrapped into the flat `Stencil.pkg`
+via `productbuild --distribution distribution.xml`. The
+distribution descriptor declares three `visible="true"` choices
+with default-on selection (`customize="allow"` so the user can
+deselect any format). Welcome / license / conclusion screens are
+auto-localized by the macOS installer based on system language;
+resources live under `vst/scripts/pkg-resources/{en,ja}.lproj/`.
+
+> **productbuild Resources pitfall.** Every `file=` attribute in
+> `distribution.xml` MUST include the extension (`welcome.txt`,
+> not `welcome`). With an extension-less reference, productbuild
+> silently drops the entire `--resources` directory at build
+> time, leaving the installer screens blank — undocumented but
+> empirically reproducible (2026-05-18, confirmed against oedipa's
+> shipped descriptor). Comment in `distribution.xml` enforces this.
+
+### Relationship to paid distribution channel
+
+[ADR 005 §Distribution posture][adr5-dist] tags vst as a paid
+release. The pkg / dmg pair is the **artifact layer**; the
+**channel layer** (gumroad / itch / own site / GH Release
+attachment) is a separate decision tracked under the same
+ADR-005 entry. The release skill
+(`.claude/skills/release/SKILL.md`) defaults to attaching both
+artifacts to the GH Release; channel decision can route either
+off-GitHub without rebuilding the artifact layer.
+
 ## Open questions
 
 - **Direct bit-edit (register persistence)** — inboil's `toggleBit`
@@ -769,10 +863,14 @@ Per CLAUDE.md "GUI / UI components":
   same source; concept.md notes the rethink is needed but
   intentionally hasn't been spec'd. v1 ships bit-count `length`
   as designed.
-- **Code signing / notarization / installer** —
-  distribution-time, not architectural. Per ADR 005 §Distribution
-  posture, vst is paid; pricing / channel / signing are TBD and
-  will land in a distribution ADR when shipping is imminent.
+- **Paid distribution channel choice** — *Distribution-time, not
+  architectural.* Per ADR 005 §Distribution posture, vst is a paid
+  release; the channel (gumroad / itch / own site / GH Release
+  attachment) and pricing are TBD. The artifact layer (signing,
+  notarization, dmg, pkg) is now in scope and addressed by
+  §Distribution below — only the channel routing decision remains
+  open for a follow-up ADR if/when it deviates from the release
+  skill's current default (attach both artifacts to the GH Release).
 - **State migration from m4l preset chunks** — Live presets and
   vst APVTS use unrelated formats; round-trip between the two
   hosts is by-MIDI-routing, not by state import. *Musical reason:*
@@ -879,6 +977,62 @@ pass at every phase boundary.
 - [x] Update [`docs/ai/adr/INDEX.md`](INDEX.md) — flip ADR 007
       row from `Proposed` to `Implemented` once §Verification is
       ticked.
+
+### Phase 6 — Distribution (2026-05-18 follow-up)
+
+Added after Phases 1–5 shipped on 2026-05-17 (Status: Implemented).
+The original §Out of scope deferral of "Code signing /
+notarization / installer" to a future distribution ADR is
+superseded by these items + the §Distribution section above;
+only the paid channel routing decision remains deferred.
+
+- [x] `vst/scripts/codesign.sh` — Developer ID Application + hardened
+      runtime signing of AU / VST3 / CLAP bundles. `entitlements.plist`
+      next to it.
+- [x] `vst/scripts/notarize.sh` — notarytool submit + staple per
+      bundle.
+- [x] `vst/scripts/build-dmg.sh` — pack signed bundles + INSTALL.txt
+      + README.txt into `dist/Stencil.dmg` (HFS+ UDZO). Sign +
+      notarize + staple the dmg itself.
+- [x] `vst/scripts/check-artefacts.sh` — pre-pack verification that
+      VST3 + AU + CLAP + Standalone bundles are present with valid
+      Info.plist / manifest. Exposed via `make verify-artefacts`.
+- [x] `vst/scripts/build-pkg.sh` — per-format `pkgbuild` (vst3 /
+      au / clap) → `productbuild --distribution distribution.xml
+      --resources pkg-resources/` → `productsign --sign
+      $DEVELOPER_TEAM_ID` (auto-selects Developer ID Installer) →
+      `xcrun notarytool submit --wait` → `xcrun stapler staple`.
+      Version parsed from `vst/CMakeLists.txt project(Stencil
+      VERSION ...)`.
+- [x] `vst/scripts/distribution.xml` — flat distribution descriptor
+      with three visible choices (VST3 / AU / CLAP), local-system
+      domain only, `customize="allow"` so users can deselect a
+      format, version placeholder `__VERSION__` substituted at
+      build time.
+- [x] `vst/scripts/pkg-resources/{en,ja}.lproj/{welcome,license,
+      conclusion}.txt` — installer screen copy (Stencil-specific
+      welcome / conclusion + im9 proprietary license, ja
+      translation marked as reference, English controls).
+- [x] Root `Makefile` `release-vst` — chain `make build →
+      codesign.sh → notarize.sh → build-dmg.sh → build-pkg.sh`
+      (single `DEVELOPER_TEAM_ID` env var feeds both signing
+      paths).
+- [x] End-to-end artifact verification: `DEVELOPER_TEAM_ID=…
+      make release-vst` produces both `dist/Stencil.dmg` and
+      `dist/Stencil.pkg`; both pass `xcrun stapler validate`;
+      `pkgutil --check-signature dist/Stencil.pkg` reports
+      "trusted by the Apple notary service" with Developer ID
+      Installer chain. *(Verified 2026-05-18: notarytool submission
+      `14bc1c09-75a7-4317-8849-5d9516b76ac3` Accepted; stapled +
+      validated locally.)* Install-on-clean-Mac + DAW discovery is
+      not gated here — it is verified as part of the standard
+      release-skill manual smoke before tagging.
+- [x] Release skill (`.claude/skills/release/SKILL.md`) updated:
+      pre-flight Check 4 references both `.dmg` and `.pkg`
+      freshness via `make release-vst`; Step 3 `gh release create`
+      passes both artifacts as positional args; §Asset is target-
+      specific bullet enumerates both. End-to-end functional run
+      remains the single open item in Phase 6.
 
 ## Verification
 

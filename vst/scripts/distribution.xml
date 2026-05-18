@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!--
+  Distribution descriptor for productbuild, consumed by build-pkg.sh.
+  Wraps three per-format component pkgs (VST3 / AU / CLAP) into a single
+  signed installer.
+
+  System-wide install only (no current-user-home choice). Rationale:
+  the secondary "Change Install Location..." button in the macOS
+  installer reads as arbitrary-folder selection but only switches
+  between enabled domains, so two domains produces a confusing
+  back-loop UI. Users who want custom placement use the dmg
+  (drag-to-install) instead. See ADR 007 §Distribution.
+
+  Welcome / license / conclusion screens are auto-localized by the
+  macOS installer based on system language. Resources live under
+  vst/scripts/pkg-resources/{en,ja}.lproj/.
+
+  customize="allow" lets the user deselect individual formats (e.g.
+  skip CLAP on a Logic-only setup). All three are visible="true" with
+  default-on selection via choices-outline.
+
+  __VERSION__ is substituted by build-pkg.sh from vst/CMakeLists.txt
+  project(Stencil VERSION ...) — single source of truth.
+-->
+<installer-gui-script minSpecVersion="2">
+    <title>Stencil</title>
+    <organization>fm.im9</organization>
+    <domains enable_localSystem="true"/>
+    <options customize="allow" require-scripts="false"/>
+
+    <!-- File extensions MUST be explicit. productbuild silently drops the
+         entire Resources directory if any file= attribute references a
+         name without extension (undocumented but empirically reproducible
+         2026-05-18). Localized variants live under pkg-resources/
+         {en,ja}.lproj/. -->
+    <welcome    file="welcome.txt"/>
+    <license    file="license.txt"/>
+    <conclusion file="conclusion.txt"/>
+
+    <choices-outline>
+        <line choice="fm.im9.stencil.vst3"/>
+        <line choice="fm.im9.stencil.au"/>
+        <line choice="fm.im9.stencil.clap"/>
+    </choices-outline>
+
+    <choice id="fm.im9.stencil.vst3"
+            visible="true"
+            title="VST3"
+            description="Stencil VST3 plug-in. Works in Bitwig Studio, Reaper, Studio One, and other VST3 hosts that allow plug-ins in MIDI / note-fx slots.">
+        <pkg-ref id="fm.im9.stencil.vst3"/>
+    </choice>
+    <choice id="fm.im9.stencil.au"
+            visible="true"
+            title="Audio Unit (AU)"
+            description="Stencil AU MIDI FX plug-in. Works in Logic Pro's AU MIDI FX slot on a software-instrument track.">
+        <pkg-ref id="fm.im9.stencil.au"/>
+    </choice>
+    <choice id="fm.im9.stencil.clap"
+            visible="true"
+            title="CLAP"
+            description="Stencil CLAP plug-in. Works in Bitwig Studio (CLAP is Bitwig's native plug-in format) and Reaper.">
+        <pkg-ref id="fm.im9.stencil.clap"/>
+    </choice>
+
+    <pkg-ref id="fm.im9.stencil.vst3" version="__VERSION__" onConclusion="none">Stencil-VST3.pkg</pkg-ref>
+    <pkg-ref id="fm.im9.stencil.au"   version="__VERSION__" onConclusion="none">Stencil-AU.pkg</pkg-ref>
+    <pkg-ref id="fm.im9.stencil.clap" version="__VERSION__" onConclusion="none">Stencil-CLAP.pkg</pkg-ref>
+</installer-gui-script>

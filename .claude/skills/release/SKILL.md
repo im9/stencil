@@ -22,15 +22,24 @@ The release asset is target-specific:
   in Max required (snowflake button → *File → Save As*). See
   [ADR 004 §Bake / distribution](../../../docs/ai/adr/004-m4l-bake-distribution.md)
   and [ADR 006 §Release verification](../../../docs/ai/adr/006-m4l-release-verification.md).
-- **vst** → `dist/Stencil.dmg` — signed-and-notarized DMG bundling
-  AU + VST3 + CLAP + INSTALL.txt + README.txt. Built by
-  `vst/scripts/build-dmg.sh` after `codesign.sh` + `notarize.sh`.
-  Per [ADR 005 §Distribution posture](../../../docs/ai/adr/005-product-split.md)
+- **vst** → both `dist/Stencil.dmg` AND `dist/Stencil.pkg`. The pair
+  is signed + notarized + stapled by
+  [`vst/scripts/build-dmg.sh`](../../../vst/scripts/build-dmg.sh) and
+  [`vst/scripts/build-pkg.sh`](../../../vst/scripts/build-pkg.sh)
+  respectively, both run after `codesign.sh` + `notarize.sh`. The two
+  artifacts serve different install paths (per ADR 007 §Distribution):
+  - **DMG** — drag-to-install, user picks the target folder. Custom
+    Audio Plug-Ins paths and segregated dev/release directories.
+  - **PKG** — signed system-wide installer with admin auth. Places
+    bundles at `/Library/Audio/Plug-Ins/{VST3,Components,CLAP}/`.
+    Per-format opt-out in the Customize step.
+
+  Per [ADR 005 §Distribution posture](../../../docs/ai/adr/archive/005-product-split.md)
   vst is a paid release; if/when the channel decision (gumroad / itch /
-  own site) requires DMG delivery off-GitHub instead of attached to the
+  own site) requires off-GitHub delivery instead of attaching to the
   GH Release, **HALT at Step 3 and confirm with the user** before
-  uploading. Default in this skill is to attach the DMG, mirroring
-  m4l's amxd attachment.
+  uploading. Default in this skill is to attach both artifacts,
+  mirroring m4l's amxd attachment.
 
 ## Pre-flight checks (do these BEFORE creating the tag)
 
@@ -96,19 +105,21 @@ plays, the bit ring renders, FREEZE / ROLL respond. CI does not
 
 #### vst target
 
-The artifact is `dist/Stencil.dmg`. Build pipeline:
+Two artifacts: `dist/Stencil.dmg` (drag-to-install) AND
+`dist/Stencil.pkg` (system-wide installer). Both built by a single
+`make release-vst` invocation at the repo root:
 
 ```bash
 (cd vst && make build && make test && make verify-artefacts)
-DEVELOPER_TEAM_ID=XXXXXXXXXX vst/scripts/codesign.sh
-vst/scripts/notarize.sh
-DEVELOPER_TEAM_ID=XXXXXXXXXX vst/scripts/build-dmg.sh
+DEVELOPER_TEAM_ID=XXXXXXXXXX make release-vst
 ```
 
-`codesign.sh` + `notarize.sh` + `build-dmg.sh` require
-`DEVELOPER_TEAM_ID` (Developer ID Application team) and a `notarytool`
-keychain profile named `im9-notary` (shared across im9 plugins;
-override via `NOTARY_PROFILE`). One-time setup of the keychain
+`make release-vst` chains `codesign.sh → notarize.sh → build-dmg.sh →
+build-pkg.sh`; all four scripts require `DEVELOPER_TEAM_ID` (Developer
+ID team — selects both the "Developer ID Application" cert for the
+bundles + dmg and the "Developer ID Installer" cert for the pkg) and a
+`notarytool` keychain profile named `im9-notary` (shared across im9
+plugins; override via `NOTARY_PROFILE`). One-time setup of the keychain
 profile:
 
 ```bash
@@ -116,17 +127,28 @@ xcrun notarytool store-credentials im9-notary \
   --apple-id <APPLE_ID> --team-id <TEAM_ID> --password <APP_SPECIFIC_PW>
 ```
 
-Verify freshness:
+Verify freshness — both artifacts must post-date the latest vst-source
+commit:
 
 ```bash
-ls -la dist/Stencil.dmg
-stat -f '%m' dist/Stencil.dmg                          # mtime as epoch
+ls -la dist/Stencil.dmg dist/Stencil.pkg
+stat -f '%m' dist/Stencil.dmg dist/Stencil.pkg            # mtime as epoch
 git log -1 --format=%ct -- vst/Source vst/CMakeLists.txt  # latest vst-source commit time
 ```
 
-`dist/Stencil.dmg` mtime must be **>=** the latest vst-source commit
-time. If older, rebuild via the pipeline above (and re-sign +
-re-notarize — the build clears the signatures).
+Both `dist/Stencil.dmg` and `dist/Stencil.pkg` mtimes must be **>=**
+the latest vst-source commit time. If either is older (or missing),
+rerun `make release-vst` (which rebuilds, re-signs, re-notarizes, and
+regenerates both artifacts in one pass — the source build clears
+prior signatures so partial reruns are not supported).
+
+Per-artifact stapling check before tagging:
+
+```bash
+xcrun stapler validate dist/Stencil.dmg
+xcrun stapler validate dist/Stencil.pkg
+pkgutil --check-signature dist/Stencil.pkg     # pkg-specific signature check
+```
 
 Manual host smoke (Logic AU MIDI FX + Bitwig VST3/CLAP MIDI fx) is
 recommended before tagging — ADR 007's host-load matrix is the
@@ -229,9 +251,9 @@ gh release create "$TAG" dist/Stencil.amxd \
   --title "$TITLE" \
   --notes-file "/tmp/stencil-$TAG-notes.md"
 
-# vst — attach the signed-and-notarized DMG (or HALT if ADR 005
-#       channel decision routes the DMG off-GitHub)
-gh release create "$TAG" dist/Stencil.dmg \
+# vst — attach BOTH the signed-and-notarized DMG and PKG (or HALT
+#       if ADR 005 channel decision routes either off-GitHub)
+gh release create "$TAG" dist/Stencil.dmg dist/Stencil.pkg \
   --title "$TITLE" \
   --notes-file "/tmp/stencil-$TAG-notes.md"
 ```
@@ -246,9 +268,11 @@ Confirm:
 
 - For m4l: `assets[0].name == "Stencil.amxd"`, `assets[0].size > 0`,
   and matches the local file's size.
-- For vst: `assets[0].name == "Stencil.dmg"`, `assets[0].size > 0`,
-  matches local file size (unless ADR 005 channel decision routed
-  the DMG off-GitHub → expect `assets == []`).
+- For vst: two assets — one `Stencil.dmg`, one `Stencil.pkg`, both
+  `size > 0` and matching the local files' sizes (assets list order
+  is not guaranteed; check by name not index). Unless ADR 005
+  channel decision routed either off-GitHub → expect `assets ==
+  []` or a partial list per that decision.
 - The release URL is reachable.
 
 Show the release URL to the user.
@@ -267,7 +291,10 @@ rm "/tmp/stencil-$TAG-notes.md"
   that pre-dates the bump points at a plugin binary reporting the
   OLD version.
 - **Asset is target-specific.** m4l → `dist/Stencil.amxd` (frozen);
-  vst → `dist/Stencil.dmg` (signed + notarized). Never mix.
+  vst → both `dist/Stencil.dmg` AND `dist/Stencil.pkg` (each signed
+  + notarized + stapled). Never mix targets; never ship vst with
+  only one of the two unless ADR 005 channel decision explicitly
+  routes one off-GitHub.
 - **Tag namespace is per-target.** `m4l-vX.Y.Z` and `vst-vX.Y.Z`
   are independent versioning lines.
 - **Manual Freeze required for m4l.** Max has no CLI freeze; this
@@ -282,14 +309,16 @@ rm "/tmp/stencil-$TAG-notes.md"
 - **Halt on any user-confirmation gate.** Steps 0 (bump commit),
   1 (version number), 2 (notes) each require explicit "ok" — don't
   proceed silently.
-- **vst DMG must be signed + notarized + stapled** before tagging.
-  `build-dmg.sh` enforces this (it requires `DEVELOPER_TEAM_ID` and
-  runs codesign + notarytool + stapler on the DMG itself; the AU /
-  VST3 / CLAP bundles inside must already be signed + notarized via
-  `codesign.sh` + `notarize.sh`). Unsigned DMGs break on Gatekeeper
-  for end users — don't ship.
+- **vst artifacts must be signed + notarized + stapled** before
+  tagging. `build-dmg.sh` and `build-pkg.sh` both enforce this:
+  they require `DEVELOPER_TEAM_ID`, run `codesign` (dmg) /
+  `productsign` (pkg) on the wrapper, submit to `notarytool`, and
+  staple. The AU / VST3 / CLAP bundles inside must already be
+  signed + notarized via `codesign.sh` + `notarize.sh` (covered by
+  `make release-vst`). Unsigned artifacts break on Gatekeeper for
+  end users — don't ship.
 - **Confirm GH attachment vs. off-GitHub channel.** ADR 005's paid
-  distribution channel may route DMG delivery off-GitHub (gumroad /
-  itch / own site). At Step 3, confirm whether the user wants the
-  DMG attached to the GH Release or wants a tag-only release with
-  the DMG distributed separately.
+  distribution channel may route delivery off-GitHub (gumroad /
+  itch / own site). At Step 3, confirm whether the user wants both
+  the DMG and PKG attached to the GH Release, only one of them, or
+  a tag-only release with both distributed separately.
