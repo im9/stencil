@@ -1,5 +1,5 @@
 Stencil — probabilistic MIDI sequence generator
-im9
+im9 / Proprietary, source-available
 
 
 Installation
