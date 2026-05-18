@@ -1,55 +1,61 @@
 ---
 name: release
-description: Cut a versioned per-target GitHub release of Stencil (m4l or vst). Bumps the source-of-truth version (vst/CMakeLists.txt project(...) for vst, m4l/package.json for m4l), verifies repo state (clean / synced / CI green / artifact freshness), drafts release notes from the per-target commit log, and runs the tag → push → gh release create flow with explicit user approval at each step.
-argument-hint: "<m4l|vst> [major|minor|patch]"
-allowed-tools: Read, Write, Edit, Bash(git *), Bash(gh *), Bash(stat *), Bash(ls *), Bash(rm /tmp/stencil-*)
+description: Cut a versioned per-target release of Stencil. m4l publishes to GitHub Releases (tag + asset + notes); vst is local-only since the paid pivot (CMakeLists VERSION bump + `make release-vst` to produce signed/notarized dmg AND pkg in dist/, no tag, no GH release — upload to Polar happens out of band). Verifies repo state, bumps semver, runs the build (vst), drafts notes (m4l), and walks each step with explicit user approval. `none` bump (vst only) keeps the current version and regenerates artifacts — for doc-only fixes to bundled files.
+argument-hint: "<m4l|vst> [major|minor|patch|none]"
+allowed-tools: Read, Write, Edit, Bash(git *), Bash(gh *), Bash(stat *), Bash(ls *), Bash(rm /tmp/stencil-*), Bash(make release-vst), Bash(xcrun stapler validate *)
 ---
 
 # Release Stencil
 
-Cut a versioned per-target GitHub release. The first $ARGUMENT
-selects the target (`m4l` or `vst`); the second is the bump
-(`major` / `minor` / `patch`, default `patch`).
+Cut a versioned per-target release. The first $ARGUMENT selects the
+target (`m4l` or `vst`); the second is the bump (`major` / `minor` /
+`patch` / `none`, default `patch`). `none` is vst-only — keep the
+current version and regenerate artifacts only.
 
-Tags are namespaced per target: `<target>-vX.Y.Z`. Each target
-versions independently — m4l hotfixes don't bump vst, and vice versa.
-This matches oedipa's convention (ADR 005 §Distribution posture; the
-two targets ship on independent cadences).
+m4l publishes to GitHub Releases with tags namespaced as
+`m4l-vX.Y.Z`. vst is local-only since the paid pivot — no tag, no GH
+release; the in-tree `vst/CMakeLists.txt` `project(... VERSION …)`
+is the version source of record, and the dmg + pkg are uploaded to
+the paid platform (Polar) out of band.
+
+No vst tags exist yet in this repo and none will be created going
+forward. m4l remains a free GitHub Releases distribution
+(tag + release + asset).
 
 The release asset is target-specific:
 
-- **m4l** → `dist/Stencil.amxd` — frozen `.amxd`. Manual freeze
-  in Max required (snowflake button → *File → Save As*). See
-  [ADR 004 §Bake / distribution](../../../docs/ai/adr/004-m4l-bake-distribution.md)
-  and [ADR 006 §Release verification](../../../docs/ai/adr/006-m4l-release-verification.md).
-- **vst** → both `dist/Stencil.dmg` AND `dist/Stencil.pkg`. The pair
-  is signed + notarized + stapled by
-  [`vst/scripts/build-dmg.sh`](../../../vst/scripts/build-dmg.sh) and
-  [`vst/scripts/build-pkg.sh`](../../../vst/scripts/build-pkg.sh)
-  respectively, both run after `codesign.sh` + `notarize.sh`. The two
-  artifacts serve different install paths (per ADR 007 §Distribution):
-  - **DMG** — drag-to-install, user picks the target folder. Custom
-    Audio Plug-Ins paths and segregated dev/release directories.
-  - **PKG** — signed system-wide installer with admin auth. Places
-    bundles at `/Library/Audio/Plug-Ins/{VST3,Components,CLAP}/`.
-    Per-format opt-out in the Customize step.
+- **m4l** → `dist/Stencil.amxd` — frozen `.amxd`. Manual freeze in
+  Max required (snowflake button → *File → Save As*). See
+  [ADR 004](../../../docs/ai/adr/archive/004-m4l-bake-distribution.md)
+  and [ADR 006](../../../docs/ai/adr/006-m4l-release-verification.md).
+- **vst** → `dist/Stencil.pkg` (recommended installer) **and**
+  `dist/Stencil.dmg` (drag-to-install fallback) — both signed /
+  notarized / stapled, built in lockstep by `make release-vst`.
+  Distribution is via the paid platform (Polar, out of band, not
+  GitHub). Both artifacts are uploaded. See
+  [ADR 005 §Distribution posture](../../../docs/ai/adr/archive/005-product-split.md)
+  and [ADR 007 §Distribution](../../../docs/ai/adr/archive/007-vst-architecture.md).
 
-  Per [ADR 005 §Distribution posture](../../../docs/ai/adr/archive/005-product-split.md)
-  vst is a paid release; if/when the channel decision (gumroad / itch /
-  own site) requires off-GitHub delivery instead of attaching to the
-  GH Release, **HALT at Step 3 and confirm with the user** before
-  uploading. Default in this skill is to attach both artifacts,
-  mirroring m4l's amxd attachment.
+> **⚠️ vst paid pivot.** vst does not publish to GitHub. No tag is
+> created, no GH release is created, no asset is uploaded.
+> `/release vst` ends locally at Step 1.6: a signed/notarized/stapled
+> `dist/Stencil.pkg` **and** `dist/Stencil.dmg` in `dist/` + (when
+> bumping) a CMakeLists VERSION bump committed to main. The build
+> itself (`make release-vst`) runs inside the skill at Step 1.6.
+> Uploading both artifacts to Polar and writing the listing copy
+> happens out of band, outside this skill — the skill does not draft
+> release notes for vst.
 
-## Pre-flight checks (do these BEFORE creating the tag)
+## Pre-flight checks (do these BEFORE the publish step)
 
-Tags are durable. Once pushed, a release with downloads is harder to
-undo cleanly. Run all checks; STOP and ask the user if any fail.
+Once a release ships (m4l: tag pushed + GH release; vst: dmg
+uploaded to the paid platform), it is harder to undo cleanly. Run
+all checks; STOP and ask the user if any fail.
 
 ### Check 1 — Working tree is clean
 
 `git status --porcelain` must be empty. Uncommitted changes leak
-into the release context if you tag now. Halt if dirty.
+into the release context. Halt if dirty.
 
 ### Check 2 — main is synced with origin
 
@@ -71,14 +77,16 @@ gh run list --branch main --limit 5 --json conclusion,headSha,workflowName
 
 The most recent completed run for the current HEAD SHA must have
 `conclusion: "success"`. If still in progress or failed, halt and
-ask.
+ask. Don't ship distribution artifacts past a red gate — chasing
+"probably just CI flake" has historically masked real regressions.
 
-### Check 4 — Artifact exists and reflects current target source
+### Check 4 — Asset reflects current source (m4l only)
 
-The artifact is gitignored, so it lives only on the build machine.
-Verify per target.
-
-#### m4l target
+For **m4l**, the asset is produced by manual Max freeze (no CLI
+freeze available), so this is a pre-flight gate — the user has to
+have done the freeze before the skill runs. For **vst**, skip this
+check; the build is run by the skill itself in Step 1.6, and the
+artifact freshness check moves there too.
 
 ```bash
 ls -la dist/Stencil.amxd
@@ -87,6 +95,9 @@ git log -1 --format=%ct -- m4l/Stencil.maxpat \
                             m4l/stencil.mjs \
                             m4l/registerRing.jsui.js \
                             m4l/registerRing.subpatcher.maxpat \
+                            m4l/rangeSlider.jsui.js \
+                            m4l/rangeSlider.subpatcher.maxpat \
+                            m4l/separator-renderer.js \
                             m4l/engine m4l/host        # latest m4l-source commit time
 ```
 
@@ -98,124 +109,131 @@ commit time. If older, halt and remind:
 > `dist/Stencil.amxd`.
 
 Even when the mtime check passes, **manual smoke test in a fresh
-Live track is recommended before tagging** — drag
-`dist/Stencil.amxd` onto a new MIDI track, confirm it loads,
-plays, the bit ring renders, FREEZE / ROLL respond. CI does not
-(and cannot) cover this.
-
-#### vst target
-
-Two artifacts: `dist/Stencil.dmg` (drag-to-install) AND
-`dist/Stencil.pkg` (system-wide installer). Both built by a single
-`make release-vst` invocation at the repo root:
-
-```bash
-(cd vst && make build && make test && make verify-artefacts)
-DEVELOPER_TEAM_ID=XXXXXXXXXX make release-vst
-```
-
-`make release-vst` chains `codesign.sh → notarize.sh → build-dmg.sh →
-build-pkg.sh`; all four scripts require `DEVELOPER_TEAM_ID` (Developer
-ID team — selects both the "Developer ID Application" cert for the
-bundles + dmg and the "Developer ID Installer" cert for the pkg) and a
-`notarytool` keychain profile named `im9-notary` (shared across im9
-plugins; override via `NOTARY_PROFILE`). One-time setup of the keychain
-profile:
-
-```bash
-xcrun notarytool store-credentials im9-notary \
-  --apple-id <APPLE_ID> --team-id <TEAM_ID> --password <APP_SPECIFIC_PW>
-```
-
-Verify freshness — both artifacts must post-date the latest vst-source
-commit:
-
-```bash
-ls -la dist/Stencil.dmg dist/Stencil.pkg
-stat -f '%m' dist/Stencil.dmg dist/Stencil.pkg            # mtime as epoch
-git log -1 --format=%ct -- vst/Source vst/CMakeLists.txt  # latest vst-source commit time
-```
-
-Both `dist/Stencil.dmg` and `dist/Stencil.pkg` mtimes must be **>=**
-the latest vst-source commit time. If either is older (or missing),
-rerun `make release-vst` (which rebuilds, re-signs, re-notarizes, and
-regenerates both artifacts in one pass — the source build clears
-prior signatures so partial reruns are not supported).
-
-Per-artifact stapling check before tagging:
-
-```bash
-xcrun stapler validate dist/Stencil.dmg
-xcrun stapler validate dist/Stencil.pkg
-pkgutil --check-signature dist/Stencil.pkg     # pkg-specific signature check
-```
-
-Manual host smoke (Logic AU MIDI FX + Bitwig VST3/CLAP MIDI fx) is
-recommended before tagging — ADR 007's host-load matrix is the
-gating manual step.
+Live track is recommended before tagging** — drag `dist/Stencil.amxd`
+onto a new MIDI track, confirm it loads, plays, the bit ring renders,
+FREEZE / ROLL respond. CI does not (and cannot) cover this.
 
 ## Drafting
 
 After pre-flight passes:
 
-### Step 0 — Bump the source-of-truth version
-
-The displayed version in the editor (`v0.1.x` label in the header
-right) is fed from `project(Stencil VERSION ...)` in
-`vst/CMakeLists.txt` via `STENCIL_VERSION_STRING`. The tag and the
-in-binary version **must move together** — otherwise the loaded
-plugin claims one version while the GH release announces another.
-
-```bash
-# Determine next version (logic in Step 1 below) and edit BEFORE tagging:
-#   vst target → vst/CMakeLists.txt   line 2: project(Stencil VERSION x.y.z)
-#   m4l target → m4l/package.json     "version": "x.y.z"
-#                m4l/engine/package.json + m4l/host/package.json if you
-#                version them in lockstep (currently 0.0.0 placeholders)
-```
-
-Commit this bump as `chore(<target>): vX.Y.Z` BEFORE creating the
-tag, so the tag points at a commit whose source already reports the
-new version. Then re-run pre-flight Check 4 (artifact mtime must now
-post-date the bump commit — for m4l, this means re-baking the
-`.amxd`).
-
-**Confirm with the user before committing the bump** — same gate as
-any other commit.
-
 ### Step 1 — Determine next version
 
+The second $ARGUMENT is the bump (default `patch`). `none` is
+**vst-only** and means "keep the current version, just regenerate
+artifacts" — useful when only bundled docs / readmes change and the
+plug-in binary doesn't actually need a new version.
+
+For **m4l**, parse the highest `m4l-v*` tag and bump per the second
+$ARGUMENT:
+
 ```bash
-git tag -l '<target>-v*' | sort -V | tail -1
+git tag -l 'm4l-v*' | sort -V | tail -1
 ```
 
-Parse the highest `<target>-vX.Y.Z` tag. Bump per the second
-$ARGUMENT (default `patch`). If no prior tag for this target,
-propose `<target>-v0.1.0`.
+(`none` is rejected for m4l — m4l version metadata isn't in-tree, so
+re-freezing at the same version would just produce a duplicate tag,
+which the skill blocks.)
+
+For **vst**, no tags are created — the in-tree
+`project(Stencil VERSION X.Y.Z)` line in `vst/CMakeLists.txt` is the
+authoritative previous version. Bump from there, or keep with `none`:
+
+```bash
+grep '^project(Stencil VERSION' vst/CMakeLists.txt
+```
+
+If no prior version exists for this target, propose `m4l-v0.1.0` /
+`0.1.0`.
 
 Show the proposed version to the user and **confirm before
-proceeding to Step 0**. The user can override.
+proceeding**. The user can override.
 
-### Step 2 — Draft release notes
+### Step 1.5 — Bump version metadata (vst only; skipped on `none`)
 
-Generate the draft from the commit log between the previous
-**per-target** tag and HEAD:
-
-```bash
-PREV=$(git tag -l '<target>-v*' | sort -V | tail -1)
-git log "${PREV:-}"..HEAD --pretty=format:'- %s'
-```
-
-If `$PREV` is empty (first release for this target), use a wider
-range or the project root commit as the lower bound. For stencil's
-**first** vst release specifically, scope the log to vst-touching
-commits:
+If Step 1 resolved to a new version (bump): edit
+`vst/CMakeLists.txt` so `project(Stencil VERSION X.Y.Z)` matches the
+target version, commit, and push to main BEFORE the build runs in
+Step 1.6. The plist version reported to the DAW and the `v…` label
+drawn in the editor header both come from this line.
 
 ```bash
-git log --pretty=format:'- %s' -- vst/ docs/ai/adr/
+# In vst/CMakeLists.txt, line 2:
+# project(Stencil VERSION <old>) → project(Stencil VERSION <new>)
+git add vst/CMakeLists.txt
+git commit -m "chore(vst): bump version to X.Y.Z"
+git push origin main
 ```
 
-Categorize commits by their `type(scope):` prefix into sections:
+If Step 1 was `none` (regen at same version): skip this step
+entirely — nothing to commit, nothing to push. Proceed to Step 1.6
+so the build picks up whatever other source changes triggered the
+regen (e.g. bundled README / INSTALL.txt fixes).
+
+For m4l this step is skipped — m4l version metadata isn't
+in-tree (the freeze captures whatever is on disk).
+
+### Step 1.6 — Build and verify (vst only)
+
+Run `make release-vst` to produce both artifacts (codesign + notarize
++ staple + dmg + pkg are wrapped in the script chain):
+
+```bash
+make release-vst
+```
+
+This takes a few minutes — notarization is the long leg (waits on
+Apple's service). Requires `DEVELOPER_TEAM_ID` env var +
+`im9-notary` keychain profile + `Developer ID Application` and
+`Developer ID Installer` certs in the login keychain. If
+`make release-vst` fails, halt and surface the error; do not retry
+blindly — notarization rejections, expired certs, and missing env
+all need investigation before re-run.
+
+After build, verify both artifacts are present, fresh, and have a
+stapled notarization ticket:
+
+```bash
+ls -la dist/Stencil.pkg dist/Stencil.dmg
+stat -f '%m' dist/Stencil.pkg                       # mtime as epoch
+stat -f '%m' dist/Stencil.dmg                       # mtime as epoch
+git log -1 --format=%ct -- vst/Source/ \
+                            vst/CMakeLists.txt \
+                            vst/scripts/ \
+                            vst/tests/              # latest vst-source commit time
+xcrun stapler validate dist/Stencil.pkg
+xcrun stapler validate dist/Stencil.dmg
+```
+
+Both `dist/Stencil.pkg` AND `dist/Stencil.dmg` mtimes must be **>=**
+the latest vst-source commit time, and `stapler validate` must
+succeed on both. If either check fails, halt — something went wrong
+in build or notarization.
+
+Manual host smoke (Logic AU MIDI FX + Bitwig VST3/CLAP MIDI fx) is
+recommended before handing the artifacts off to Polar.
+
+**vst stops here.** Steps 2-5 are m4l-only. Upload both artifacts to
+Polar and write the listing copy out of band.
+
+### Step 2 — Draft release notes (m4l only)
+
+For **vst**, skip this step — the skill does not draft listing copy
+for Polar. Write the Polar product / release description out of band.
+
+For **m4l**, compute the previous-release boundary (highest `m4l-v*`
+tag) and generate the changelog from the commit log between it and
+HEAD:
+
+```bash
+PREV=$(git tag -l 'm4l-v*' | sort -V | tail -1)
+git log "${PREV:-}"..HEAD --pretty=format:'- %s' -- m4l/
+```
+
+If `$PREV` is empty (first m4l release), use the project root as the
+lower bound.
+
+Categorize commits by their `type:` prefix into sections:
 
 - **Features** — `feat:`
 - **Fixes** — `fix:`
@@ -226,39 +244,34 @@ Drop the `Co-Authored-By` lines and trailing housekeeping noise.
 Keep the section short — release notes are for users, not
 contributors; detailed history is in `git log`.
 
-For the very first release of a target (no prior `<target>-v*` tag),
-use a project-intro template instead of a changelog: "What it does"
-/ "Install" / "Requirements".
+For the very first m4l release, use a project-intro template
+("What it does" / "Install" / "Requirements") instead of a changelog.
 
-Write the draft to `/tmp/stencil-<tag>-notes.md` and show it to the
-user. **Wait for explicit "ok" or edit instructions** before Step 3.
+Write the draft to `/tmp/stencil-m4l-vX.Y.Z-notes.md` and show it to
+the user. **Wait for explicit "ok" or edit instructions** before
+continuing. The file is fed to `gh release create --notes-file` in
+Step 3.
 
-### Step 3 — Tag, push, create release
+### Step 3 — Tag, push, create release (m4l only)
+
+For **vst**, skip this step entirely — see the paid-pivot block at
+the top. vst's flow already ended at Step 1.6 with both artifacts in
+`dist/` and (when bumping) the CMakeLists bump committed; Polar
+upload happens out of band.
 
 ```bash
-TAG=<target>-vX.Y.Z
-TITLE="Stencil <target> vX.Y.Z"
+TAG=m4l-vX.Y.Z
+ASSET=dist/Stencil.amxd
+TITLE="Stencil m4l vX.Y.Z"
 
 git tag "$TAG"
 git push origin "$TAG"
-```
-
-Then per target:
-
-```bash
-# m4l — attach the frozen .amxd
-gh release create "$TAG" dist/Stencil.amxd \
-  --title "$TITLE" \
-  --notes-file "/tmp/stencil-$TAG-notes.md"
-
-# vst — attach BOTH the signed-and-notarized DMG and PKG (or HALT
-#       if ADR 005 channel decision routes either off-GitHub)
-gh release create "$TAG" dist/Stencil.dmg dist/Stencil.pkg \
+gh release create "$TAG" "$ASSET" \
   --title "$TITLE" \
   --notes-file "/tmp/stencil-$TAG-notes.md"
 ```
 
-### Step 4 — Verify
+### Step 4 — Verify (m4l only)
 
 ```bash
 gh release view "$TAG" --json name,tagName,assets,url
@@ -266,59 +279,54 @@ gh release view "$TAG" --json name,tagName,assets,url
 
 Confirm:
 
-- For m4l: `assets[0].name == "Stencil.amxd"`, `assets[0].size > 0`,
-  and matches the local file's size.
-- For vst: two assets — one `Stencil.dmg`, one `Stencil.pkg`, both
-  `size > 0` and matching the local files' sizes (assets list order
-  is not guaranteed; check by name not index). Unless ADR 005
-  channel decision routed either off-GitHub → expect `assets ==
-  []` or a partial list per that decision.
+- `assets[0].name` is `Stencil.amxd`.
+- `assets[0].size` > 0 and matches the local file's size.
 - The release URL is reachable.
 
 Show the release URL to the user.
 
-### Step 5 — Cleanup
+### Step 5 — Cleanup (m4l only)
 
 ```bash
-rm "/tmp/stencil-$TAG-notes.md"
+rm "/tmp/stencil-m4l-vX.Y.Z-notes.md"
 ```
 
 ## Rules
 
-- **Bump before tag.** `project(Stencil VERSION ...)` (vst) or
-  `package.json` (m4l) must be edited and committed BEFORE the tag
-  exists. The editor reads the version at compile time, so a tag
-  that pre-dates the bump points at a plugin binary reporting the
-  OLD version.
 - **Asset is target-specific.** m4l → `dist/Stencil.amxd` (frozen);
-  vst → both `dist/Stencil.dmg` AND `dist/Stencil.pkg` (each signed
-  + notarized + stapled). Never mix targets; never ship vst with
-  only one of the two unless ADR 005 channel decision explicitly
-  routes one off-GitHub.
-- **Tag namespace is per-target.** `m4l-vX.Y.Z` and `vst-vX.Y.Z`
-  are independent versioning lines.
+  vst → both `dist/Stencil.pkg` (signed/notarized/stapled installer)
+  and `dist/Stencil.dmg` (signed/notarized/stapled drag-to-install).
+  Never mix.
+- **m4l publishes to GitHub; vst does not.** m4l tags `m4l-vX.Y.Z`,
+  creates a GH release, attaches the `.amxd`. vst skips Step 3/4
+  entirely — no tag, no GH release, no asset upload. vst's dmg + pkg
+  are handed off to the paid platform out of band.
+- **vst version source of record = CMakeLists.** Since vst has no
+  tags, `project(Stencil VERSION X.Y.Z)` in `vst/CMakeLists.txt` is
+  the single authoritative version. Bump at Step 1.5 (skipped on
+  `none`) and commit + push before Step 1.6 builds the artifacts.
 - **Manual Freeze required for m4l.** Max has no CLI freeze; this
   skill does not automate it.
-- **Tag once, never re-tag.** If a tag for the proposed version
-  already exists, bump again rather than overwrite. Force-deleting
-  a pushed tag is messy and breaks anyone who pulled it.
-- **Notes via `--notes-file`, not `--notes`.** The temp-file flow
-  lets the user edit before publish.
+- **`make release-vst` runs inside the skill (Step 1.6).** Both the
+  dmg and the pkg are built + signed + notarized + stapled by the
+  script chain (`codesign.sh` → `notarize.sh` → `build-dmg.sh` →
+  `build-pkg.sh`). The skill invokes it after Step 1.5 — the user
+  doesn't run it manually. Requires `DEVELOPER_TEAM_ID` +
+  `im9-notary` keychain profile + signing certs in the login
+  keychain.
+- **`none` bump is vst-only.** A vst regen at the same version is
+  for doc-only fixes (bundled README / INSTALL.txt) where the
+  plug-in binary doesn't need a version change. Step 1.5 is skipped;
+  Step 1.6 still rebuilds artifacts so the new bundled files land in
+  dmg + pkg.
+- **Tag once, never re-tag (m4l).** If an `m4l-v*` tag for the
+  proposed version already exists, bump again rather than
+  overwrite. Force-deleting a tag that was already pushed is messy
+  and breaks anyone who pulled it.
+- **Notes via `--notes-file`, not `--notes`** (m4l). The temp-file
+  flow lets the user edit before publish. vst has no notes-drafting
+  step — write the Polar listing copy out of band.
 - **Halt on any pre-flight failure.** Don't release past a red
   gate.
-- **Halt on any user-confirmation gate.** Steps 0 (bump commit),
-  1 (version number), 2 (notes) each require explicit "ok" — don't
-  proceed silently.
-- **vst artifacts must be signed + notarized + stapled** before
-  tagging. `build-dmg.sh` and `build-pkg.sh` both enforce this:
-  they require `DEVELOPER_TEAM_ID`, run `codesign` (dmg) /
-  `productsign` (pkg) on the wrapper, submit to `notarytool`, and
-  staple. The AU / VST3 / CLAP bundles inside must already be
-  signed + notarized via `codesign.sh` + `notarize.sh` (covered by
-  `make release-vst`). Unsigned artifacts break on Gatekeeper for
-  end users — don't ship.
-- **Confirm GH attachment vs. off-GitHub channel.** ADR 005's paid
-  distribution channel may route delivery off-GitHub (gumroad /
-  itch / own site). At Step 3, confirm whether the user wants both
-  the DMG and PKG attached to the GH Release, only one of them, or
-  a tag-only release with both distributed separately.
+- **Halt on any user-confirmation gate.** Steps 1 (version) and 2
+  (notes) require explicit "ok" — don't proceed silently.
