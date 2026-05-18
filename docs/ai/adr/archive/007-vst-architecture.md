@@ -531,8 +531,12 @@ PluginEditor (top-level)
 └── HistoryView   (h: 136px, bottom)
 ```
 
-Initial size: `820 × 540` px. Resizable; `RingView` flexes,
-`RightRailView` stays at 280px, `HistoryView` stays at 136px height.
+Initial size: `820 × 600` px (originally `820 × 540` in this ADR —
+grew to 600 post-2026-05-16 RANGE consolidation so the right rail
+fits Parameters / Output / Trigger / Reproducibility without a
+scrollbar; see `PluginEditor.cpp` setSize comment for rationale).
+Resizable; `RingView` flexes, `RightRailView` stays at 280px,
+`HistoryView` stays at 136px height.
 
 #### Logic / renderer split (per CLAUDE.md "GUI / UI components")
 
@@ -947,7 +951,8 @@ pass at every phase boundary.
       Trigger fieldset's vertical budget is reworked.
 - [x] `Source/Editor/HistoryView.h/.cpp` — output history bar series.
 - [x] `Source/Editor/PluginEditor.h/.cpp` — top-level layout
-      (header / body / history) + initial size 820 × 540.
+      (header / body / history) + initial size 820 × 540 (later
+      grown to 600 — see §UI).
 - [x] `make test` passes — editor smoke + logic-layer cases green
       (1434 assertions / 73 test cases, cold-build green).
 
