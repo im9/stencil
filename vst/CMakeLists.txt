@@ -95,7 +95,7 @@ target_compile_definitions(stencil_plugin_core PUBLIC
 # CLAP added in Phase 4 via clap-juce-extensions.
 juce_add_plugin(Stencil
     COMPANY_NAME "im9"
-    BUNDLE_ID "com.im9.stencil"
+    BUNDLE_ID "fm.im9.stencil"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT TRUE
@@ -159,7 +159,7 @@ target_compile_definitions(Stencil PRIVATE
 # the repo is currently private — CLAP hosts surface them in the plug-in
 # info panel and the placeholder is fine until the public release lands.
 clap_juce_extensions_plugin(TARGET Stencil
-    CLAP_ID "com.im9.stencil"
+    CLAP_ID "fm.im9.stencil"
     CLAP_FEATURES note-effect utility
     CLAP_MANUAL_URL "https://github.com/im9/stencil"
     CLAP_SUPPORT_URL "https://github.com/im9/stencil/issues"

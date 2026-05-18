@@ -595,7 +595,7 @@ include(FetchContent)              # Catch2 v3, nlohmann/json v3
 #   - PLUGIN_CODE "Stnl"
 #   - COPY_PLUGIN_AFTER_BUILD TRUE
 # clap_juce_extensions_plugin(TARGET Stencil
-#     CLAP_ID "com.im9.stencil"
+#     CLAP_ID "fm.im9.stencil"
 #     CLAP_FEATURES note-effect utility
 #     CLAP_MANUAL_URL / CLAP_SUPPORT_URL)
 # stencil_plugin_core static library (Plugin/ + Editor/, no juce_audio_plugin_client)
@@ -861,7 +861,7 @@ pass at every phase boundary.
       `git clone --recursive` instructions in `CLAUDE.md` §Setup.
 - [x] CMake `clap_juce_extensions_plugin(TARGET Stencil ...)` with
       `CLAP_FEATURES "note-effect utility"`, `CLAP_ID
-      "com.im9.stencil"`, `CLAP_MANUAL_URL` / `CLAP_SUPPORT_URL`
+      "fm.im9.stencil"`, `CLAP_MANUAL_URL` / `CLAP_SUPPORT_URL`
       pointing at the (planned) GitHub repo.
 - [x] `make build` produces VST3 + AU + CLAP artifacts in
       `build/Stencil_artefacts/Release/{VST3,AU,CLAP}/`. Add
