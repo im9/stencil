@@ -1,7 +1,8 @@
 // Top-level plugin editor (ADR 007 §Editor — inboil TuringSheet port).
 //
 // Layout: header (40 px) → body (RingView flex + RightRailView 280 px) →
-// HistoryView (136 px). Initial size 820 × 540 (ADR 007 §Layout);
+// HistoryView (136 px). Initial size 820 × 600 (ADR 007 §Layout was 540;
+// grew to 600 post-2026-05-16 RANGE consolidation — see PluginEditor.cpp);
 // resizable so users can grow the ring on a large display while the rail
 // and history bar stay at fixed widths/heights.
 

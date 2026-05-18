@@ -25,16 +25,19 @@ using stencil::editor::StencilEditor;
 using stencil::plugin::StencilProcessor;
 namespace pid = stencil::plugin::pid;
 
-TEST_CASE("StencilEditor instantiates with the default 820x540 size", "[editor][smoke]")
+TEST_CASE("StencilEditor instantiates with the default 820x600 size", "[editor][smoke]")
 {
-    // Justification: ADR 007 §Editor — initial size 820 × 540. Verifying
-    // constructor success + default size catches both linker-level
-    // regressions (e.g. Editor sources missing from the test binary)
-    // and an accidental setSize call drift.
+    // Justification: ADR 007 §Editor specified 820 × 540, but height grew
+    // to 600 post-2026-05-16 RANGE consolidation so the right rail's
+    // Parameters / Output / Trigger / Reproducibility fieldsets fit
+    // without a scrollbar (see PluginEditor.cpp setSize comment).
+    // Verifying constructor success + default size catches both
+    // linker-level regressions (e.g. Editor sources missing from the
+    // test binary) and an accidental setSize call drift.
     StencilProcessor proc;
     StencilEditor editor(proc);
     REQUIRE(editor.getWidth() == 820);
-    REQUIRE(editor.getHeight() == 540);
+    REQUIRE(editor.getHeight() == 600);
 }
 
 TEST_CASE("StencilEditor::paint runs without crashing", "[editor][smoke]")
