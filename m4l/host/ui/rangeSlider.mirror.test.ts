@@ -76,3 +76,34 @@ test("renderer emits the rangeLo / rangeHi outlet messages the patcher routes", 
   assert.match(RENDERER_SRC, /outlet\([^)]*['"]rangeLo['"]/);
   assert.match(RENDERER_SRC, /outlet\([^)]*['"]rangeHi['"]/);
 });
+
+// Drift detector for the note-name conversion. logic.ts and the renderer
+// each hold their own copy of the pitch-class table because Max's [jsui]
+// can't reach the TS source; assert both copies stay in sync on Live's
+// Yamaha convention (no flat enharmonics).
+
+test("renderer mirrors the pitch-class table from logic.ts", () => {
+  // The 12 names must appear, in order, inside a single declaration.
+  // Match the array literal directly so reordering or substitution
+  // ("Db" for "C#") trips the check.
+  assert.match(
+    RENDERER_SRC,
+    /\[\s*['"]C['"]\s*,\s*['"]C#['"]\s*,\s*['"]D['"]\s*,\s*['"]D#['"]\s*,\s*['"]E['"]\s*,\s*['"]F['"]\s*,\s*['"]F#['"]\s*,\s*['"]G['"]\s*,\s*['"]G#['"]\s*,\s*['"]A['"]\s*,\s*['"]A#['"]\s*,\s*['"]B['"]\s*\]/,
+  );
+});
+
+test("renderer defines a midiToNoteName function", () => {
+  assert.match(RENDERER_SRC, /function\s+midiToNoteName\b/);
+});
+
+// The horizontal port replaced valueToY / yToValue with valueToX /
+// xToValue. Catch accidental partial reverts (e.g. only updating the
+// canvas size but leaving y-axis math) by asserting the new names appear
+// and the old ones don't.
+
+test("renderer uses horizontal-axis helpers (no vertical leftovers)", () => {
+  assert.match(RENDERER_SRC, /function\s+valueToX\b/);
+  assert.match(RENDERER_SRC, /function\s+xToValue\b/);
+  assert.doesNotMatch(RENDERER_SRC, /function\s+valueToY\b/);
+  assert.doesNotMatch(RENDERER_SRC, /function\s+yToValue\b/);
+});

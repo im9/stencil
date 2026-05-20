@@ -23,7 +23,7 @@
         "toolbarvisible": 1,
         "boxes": [
             {"box": {"id": "obj-inlet", "maxclass": "inlet", "comment": "setLo / setHi messages", "numinlets": 0, "numoutlets": 1, "outlettype": [""], "patching_rect": [16.0, 16.0, 30.0, 30.0]}},
-            {"box": {"id": "obj-jsui", "maxclass": "jsui", "filename": "rangeSlider.jsui.js", "border": 0, "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [0.0, 0.0, 56.0, 132.0], "presentation": 1, "presentation_rect": [0.0, 0.0, 56.0, 132.0]}},
+            {"box": {"id": "obj-jsui", "maxclass": "jsui", "filename": "rangeSlider.jsui.js", "border": 0, "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [0.0, 0.0, 108.0, 32.0], "presentation": 1, "presentation_rect": [0.0, 0.0, 108.0, 32.0]}},
             {"box": {"id": "obj-outlet", "maxclass": "outlet", "comment": "rangeLo / rangeHi <int> from user drag", "numinlets": 1, "numoutlets": 0, "patching_rect": [340.0, 60.0, 30.0, 30.0]}}
         ],
         "lines": [
