@@ -212,14 +212,19 @@ test('every patchline source/destination id resolves to a known box', () => {
 
 // ---- ADR 003 §Stencil patcher ------------------------------------------
 
-test('devicewidth = 592 and openinpresentation = 1', () => {
+test('devicewidth = 526 and openinpresentation = 1', () => {
   // 4 vertical sections separated by sub-pixel jsui dividers (no
-  // rectangular panel frames). Panel 2 holds just the register ring;
-  // RANGE slider sits in panel 3 (Output) alongside VEL / GATE /
-  // SUBDIV. Panel 1 (parameters) tightened to 12 px internal padding
-  // each side.
+  // rectangular panel frames). After the 2026-05-19 layout pass:
+  // - NOTE (range) slider moved from panel 3 into panel 1 above SEED;
+  // - SEED / RND swapped with SUBDIV (SUBDIV joins panel 1, SEED/RND
+  //   joins panel 3 under VEL/GATE);
+  // - a second separator was added immediately right of the ring
+  //   (panel 2/3 boundary), and panel 3 + 4 pulled left so the spare
+  //   horizontal space between ring and VEL/GATE shrinks to 12 px.
+  // Net effect: panels 3+4 lose ~58 px of empty width, devicewidth
+  // shrinks from 584 -> 526.
   const { parsed } = loadPatcher(MAXPAT)
-  assert.equal(parsed.patcher.devicewidth, 584)
+  assert.equal(parsed.patcher.devicewidth, 526)
   assert.equal(parsed.patcher.openinpresentation, 1)
 })
 
