@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "Editor/NoteFormat.h"
 #include "Editor/RingLogic.h"
 #include "Editor/Theme.h"
 #include "Engine/Turing.h"
@@ -13,16 +14,6 @@ namespace editor {
 
 namespace
 {
-const char* kNoteNames[] = {
-    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
-};
-
-juce::String noteLabel(int midiNote)
-{
-    const int n = std::clamp(midiNote, 0, 127);
-    return juce::String(kNoteNames[n % 12]) + juce::String(n / 12 - 1);
-}
-
 // Read length straight from APVTS — single source of truth for "how many
 // bits to draw." The atomic register snapshot may briefly contain a value
 // computed under a different `length` if the user just resized; masking

@@ -70,6 +70,7 @@ add_library(stencil_plugin_core STATIC
     Source/Editor/RightRailView.h
     Source/Editor/HistoryView.cpp
     Source/Editor/HistoryView.h
+    Source/Editor/NoteFormat.h
 )
 target_include_directories(stencil_plugin_core PUBLIC Source)
 target_link_libraries(stencil_plugin_core PUBLIC
@@ -130,6 +131,7 @@ target_sources(Stencil PRIVATE
     Source/Editor/RightRailView.h
     Source/Editor/HistoryView.cpp
     Source/Editor/HistoryView.h
+    Source/Editor/NoteFormat.h
 )
 target_include_directories(Stencil PRIVATE Source)
 
@@ -177,6 +179,7 @@ add_executable(stencil_tests
     tests/test_Plugin.cpp
     tests/test_RingLogic.cpp
     tests/test_Editor.cpp
+    tests/test_NoteFormat.cpp
 )
 target_link_libraries(stencil_tests PRIVATE
     stencil_plugin_core   # transitively brings stencil_engine + JUCE modules

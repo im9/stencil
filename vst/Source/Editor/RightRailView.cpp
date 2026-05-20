@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "Editor/NoteFormat.h"
 #include "Editor/RingLogic.h"
 #include "Editor/Theme.h"
 #include "Engine/Rng.h"
@@ -317,17 +318,18 @@ void RightRailView::paintContent(juce::Graphics& g) const
         drawFieldsetFrame(g, { frameX, fy, frameW, outputHeight_ }, "Output");
         const int valX = innerXv + innerW - kValueColW;
 
-        drawRowLabel(g, innerXv, rowY(0, fy), rh, "RANGE");
+        drawRowLabel(g, innerXv, rowY(0, fy), rh, "NOTE");
         drawRowLabel(g, innerXv, rowY(1, fy), rh, "VEL");
         drawRowLabel(g, innerXv, rowY(2, fy), rh, "GATE");
         drawRowLabel(g, innerXv, rowY(3, fy), rh, "SUBDIV");
-        // RANGE value shows both thumbs as "lo..hi" in a single cell;
-        // the slider itself is a two-thumb widget so a single cell is
-        // the natural fit.
+        // NOTE value shows both thumbs as "loName..hiName" in a single
+        // cell. Note names track the host's piano-roll convention
+        // (Yamaha, C3 = MIDI 60 — see NoteFormat.h); the slider itself
+        // is a two-thumb widget so the joined cell matches the param.
         const int lo = static_cast<int>(*a.getRawParameterValue(plugin::pid::rangeLo));
         const int hi = static_cast<int>(*a.getRawParameterValue(plugin::pid::rangeHi));
         drawRowValue(g, valX, rowY(0, fy), kValueColW, rh,
-                     juce::String(lo) + ".." + juce::String(hi));
+                     noteLabel(lo) + ".." + noteLabel(hi));
         drawRowValue(g, valX, rowY(1, fy), kValueColW, rh, fmtInt(a, plugin::pid::outputVelocity));
         drawRowValue(g, valX, rowY(2, fy), kValueColW, rh, fmtFloat2(a, plugin::pid::outputGate));
         // Row 3 (SUBDIV) — combo box renders its own selected item; no
