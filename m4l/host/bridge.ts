@@ -127,6 +127,9 @@ export class TmBridge {
   panic(): void {
     for (const ev of this.host.panic()) this.dispatch(ev);
     this.resetTimingAlignment();
+    // No notes are sounding after panic; clear the ring's readout so the
+    // last-played name doesn't linger.
+    this.deps.emitOutlet("currentNote", -1);
   }
 
   transportStart(): void {
@@ -140,6 +143,9 @@ export class TmBridge {
     for (const ev of this.host.transportStop()) this.dispatch(ev);
     this.emitPosition();
     this.resetTimingAlignment();
+    // Stopped transport = nothing sounding; clear the ring's readout so
+    // the last-played name doesn't carry over into a silent device.
+    this.deps.emitOutlet("currentNote", -1);
   }
 
   setRange(lo: number, hi: number): void {
@@ -245,6 +251,17 @@ export class TmBridge {
   private emitNoteEvent(ev: NoteEvent): void {
     const velocity = ev.type === "noteOn" ? ev.velocity : 0;
     this.deps.emitNote(ev.pitch, velocity, ev.channel);
+    // Fork noteOn (only) to the ring's center-text readout. The noteOff
+    // fork was tried first but Max's deferlow + redraw pipeline coalesces
+    // a sub-frame show/clear pair within a single low-priority drain, so
+    // the readout flickered invisibly during play. Holding the readout
+    // between noteOn events makes "currently playing" readable across the
+    // whole sounding-plus-gate-gap window without changing the visible
+    // contract -- the only blank state is "transport is not running",
+    // which transportStop / panic clears below.
+    if (ev.type === "noteOn") {
+      this.deps.emitOutlet("currentNote", ev.pitch);
+    }
   }
 
   private recordStepTiming(pos: number): void {

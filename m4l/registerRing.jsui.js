@@ -38,7 +38,7 @@ mgraphics.init()
 mgraphics.relative_coords = 0
 mgraphics.autofill = 0
 
-post('registerRing.jsui.js loaded build=2026-05-16 ableton-dark+static\n')
+post('registerRing.jsui.js loaded build=2026-05-19 currentNote-readout\n')
 
 // --- Constants (mirror m4l/host/ui/registerRing.logic.ts) ---
 
@@ -65,10 +65,17 @@ var COL_OUTLINE     = [0.55, 0.55, 0.55]  // dim grey (inactive outline)
 var OUTLINE_ALPHA   = 0.85
 var COL_READHEAD    = [1.00, 0.66, 0.20]  // Live orange (trigger / read-head)
 var COL_POINTER     = [0.85, 0.85, 0.85]  // playhead triangle
+var COL_READOUT     = [0.85, 0.85, 0.85]  // center note-name readout
 
 // --- State ---
 
 var bits = []
+// MIDI pitch of the note currently sounding, or -1 when silent. The bridge
+// (host/bridge.ts) forks every noteOn/noteOff to the `currentNote` outlet;
+// noteOn -> 0..127, noteOff -> -1. Display lifecycle = audible-note
+// lifecycle, so silent steps (LSB=0 / density-fail / between gate-closed
+// and next noteOn) leave the readout blank.
+var currentNote = -1
 
 // --- Message dispatch ---
 //
@@ -81,6 +88,7 @@ function anything() {
   var msg = messagename
   var args = arrayfromargs(arguments)
   if (msg === 'register') { setRegister(args); return }
+  if (msg === 'currentNote') { setCurrentNote(args[0]); return }
   if (msg === 'ringHead' || msg === 'stepBeat' || msg === 'triggerFlash') return
   post('registerRing.jsui.js: unhandled message ' + msg + '\n')
 }
@@ -92,6 +100,35 @@ function setRegister(args) {
   }
   bits = next
   mgraphics.redraw()
+}
+
+function setCurrentNote(v) {
+  var n = Number(v)
+  if (!isFinite(n)) { currentNote = -1 }
+  else if (n < 0) { currentNote = -1 }
+  else if (n > 127) { currentNote = 127 }
+  else { currentNote = Math.round(n) }
+  mgraphics.redraw()
+}
+
+// MIDI -> note name, Live convention (MIDI 60 = "C3"). Mirrored from
+// m4l/host/ui/rangeSlider.logic.ts midiToNoteName; the renderer's mirror
+// test asserts both copies (this one + rangeSlider.jsui.js) carry the
+// same pitch-class table. The bridge could pre-format and emit a string,
+// but emitting the raw MIDI number keeps the outlet protocol numeric
+// (same shape as `register` / `ringHead`) and the renderer owns its
+// own display formatting.
+var NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+
+function midiToNoteName(midi) {
+  var n = Number(midi)
+  if (!isFinite(n)) return '?'
+  if (n < 0) n = 0
+  else if (n > 127) n = 127
+  n = Math.round(n)
+  var octave = Math.floor(n / 12) - 2
+  var pc = n % 12
+  return NOTE_NAMES[pc] + octave
 }
 
 // --- Layout (mirrors registerRing.logic.ts) ---
@@ -221,6 +258,29 @@ function paint() {
     tip.x + POINTER_HALF_WIDTH, tip.y,
     COL_POINTER, 0.85
   )
+
+  // Center-text readout of the note currently sounding. Drawn last so
+  // it sits on top of any bit-shape that visually intrudes on the
+  // ring's interior. currentNote < 0 means silent (bridge cleared it
+  // via noteOff fork) -- skip the draw entirely so the ring shows
+  // nothing rather than a stale label.
+  if (currentNote >= 0) {
+    var label = midiToNoteName(currentNote)
+    // Andale Mono ~5.5 px / glyph at the chosen size. Center the
+    // baseline against the geometry center so the text reads as
+    // "what the playhead is emitting." Font size scales with the
+    // available radius so small rings (LEN=32) don't overflow.
+    var fontSize = Math.max(10, Math.min(18, Math.floor(g.radius * 0.42)))
+    var charWidth = fontSize * 0.62
+    var labelWidth = label.length * charWidth
+    var leftX = g.cx - labelWidth / 2
+    var baselineY = g.cy + fontSize / 3
+    mgraphics.set_source_rgba(COL_READOUT[0], COL_READOUT[1], COL_READOUT[2], 1)
+    mgraphics.select_font_face('Andale Mono')
+    mgraphics.set_font_size(fontSize)
+    mgraphics.move_to(leftX, baselineY)
+    mgraphics.show_text(label)
+  }
 }
 
 // --- Mouse interaction ---

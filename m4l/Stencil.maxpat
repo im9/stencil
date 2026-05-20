@@ -54,14 +54,16 @@
             {"box": {"id": "obj-nodescript", "maxclass": "newobj", "text": "node.script stencil.mjs @autostart 1", "numinlets": 1, "numoutlets": 2, "outlettype": ["", ""], "patching_rect": [40.0, 360.0, 420.0, 22.0]}},
             {"box": {"id": "obj-print-from-node", "maxclass": "newobj", "text": "print stencil-from-node", "numinlets": 1, "numoutlets": 0, "patching_rect": [40.0, 390.0, 200.0, 22.0]}},
 
-            {"box": {"id": "obj-route-out", "maxclass": "newobj", "text": "route note ready register ringHead", "numinlets": 1, "numoutlets": 5, "outlettype": ["", "", "", "", ""], "patching_rect": [240.0, 390.0, 280.0, 22.0]}},
+            {"box": {"id": "obj-route-out", "maxclass": "newobj", "text": "route note ready register ringHead currentNote", "numinlets": 1, "numoutlets": 6, "outlettype": ["", "", "", "", "", ""], "patching_rect": [240.0, 390.0, 370.0, 22.0]}},
             {"box": {"id": "obj-trig-ready", "maxclass": "newobj", "text": "t b", "numinlets": 1, "numoutlets": 1, "outlettype": ["bang"], "patching_rect": [340.0, 450.0, 40.0, 22.0]}},
             {"box": {"id": "obj-unpack-note", "maxclass": "newobj", "text": "unpack 0 0 0", "numinlets": 1, "numoutlets": 3, "outlettype": ["int", "int", "int"], "patching_rect": [240.0, 420.0, 100.0, 22.0]}},
             {"box": {"id": "obj-noteout", "maxclass": "newobj", "text": "noteout", "numinlets": 3, "numoutlets": 0, "patching_rect": [240.0, 480.0, 60.0, 22.0]}},
             {"box": {"id": "obj-defer-reg", "maxclass": "newobj", "text": "deferlow", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [400.0, 390.0, 80.0, 22.0]}},
             {"box": {"id": "obj-defer-pos", "maxclass": "newobj", "text": "deferlow", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [520.0, 390.0, 80.0, 22.0]}},
+            {"box": {"id": "obj-defer-currentNote", "maxclass": "newobj", "text": "deferlow", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [640.0, 390.0, 80.0, 22.0]}},
             {"box": {"id": "obj-prep-reg", "maxclass": "newobj", "text": "prepend register", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [400.0, 420.0, 110.0, 22.0]}},
             {"box": {"id": "obj-prep-pos", "maxclass": "newobj", "text": "prepend ringHead", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [520.0, 420.0, 110.0, 22.0]}},
+            {"box": {"id": "obj-prep-currentNote", "maxclass": "newobj", "text": "prepend currentNote", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [640.0, 420.0, 130.0, 22.0]}},
 
             {"box": {"id": "obj-bpatcher-ring", "maxclass": "bpatcher", "name": "registerRing.subpatcher.maxpat", "border": 0, "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [344.0, 32.0, 148.0, 148.0], "presentation": 1, "presentation_rect": [163.0, 10.0, 148.0, 148.0]}},
 
@@ -173,6 +175,10 @@
             {"patchline": {"source": ["obj-route-out", 3], "destination": ["obj-defer-pos", 0]}},
             {"patchline": {"source": ["obj-defer-pos", 0], "destination": ["obj-prep-pos", 0]}},
             {"patchline": {"source": ["obj-prep-pos", 0], "destination": ["obj-bpatcher-ring", 0]}},
+
+            {"patchline": {"source": ["obj-route-out", 4], "destination": ["obj-defer-currentNote", 0]}},
+            {"patchline": {"source": ["obj-defer-currentNote", 0], "destination": ["obj-prep-currentNote", 0]}},
+            {"patchline": {"source": ["obj-prep-currentNote", 0], "destination": ["obj-bpatcher-ring", 0]}},
 
             {"patchline": {"source": ["obj-bpatcher-ring", 0], "destination": ["obj-nodescript", 0]}},
 

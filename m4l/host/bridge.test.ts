@@ -437,3 +437,112 @@ test("panic — flushes via host, emits no spurious register/position", () => {
   assert.equal(outletsByName(rec, "register").length, 0);
   assert.equal(outletsByName(rec, "ringHead").length, 0);
 });
+
+// --- currentNote side-channel --------------------------------------------
+//
+// The bridge forks noteOn (not noteOff) to a `currentNote` outlet so the
+// register ring's center text shows the last note that fired. The readout
+// is held between noteOn events because the original noteOff fork made the
+// show/clear pair invisible under Max's deferlow + redraw coalescing (the
+// sub-frame "60 -> -1" pair drained as one paint cycle and rendered the
+// cleared state only). Holding the last note matches the visible contract
+// "currently playing" across the gate-off gap; the only blank state is a
+// stopped transport, which transportStop / panic emits -1 to clear.
+
+test("step — noteOn fork: currentNote <pitch> emitted alongside the audible noteOn", () => {
+  const { bridge, rec } = makeBridge({
+    seed: 1,
+    length: 8,
+    density: 1.0,
+    lock: 1.0,
+    outputGate: 0.5,
+    outputChannel: 1,
+  });
+  bridge.setBit(0, 1);
+  rec.outlets.length = 0;
+  bridge.step(0);
+  const onEmits = outletsByName(rec, "currentNote");
+  assert.equal(onEmits.length, 1, "exactly one show emit on a single-note step");
+  const pitch = onEmits[0].args[0] as number;
+  assert.ok(
+    Number.isInteger(pitch) && pitch >= 0 && pitch <= 127,
+    `pitch must be a valid MIDI number, got ${pitch}`,
+  );
+  // Pitch on the readout must match the pitch on the audible noteOn (same
+  // mapToNote call, no divergence). Compare against the recorded note.
+  const audibleOn = rec.notes.find((n) => n.velocity > 0);
+  assert.ok(audibleOn, "audible noteOn must exist");
+  assert.equal(pitch, audibleOn!.pitch, "readout pitch == audible pitch");
+});
+
+test("step — noteOff does NOT clear currentNote (readout holds last note)", () => {
+  // Holding the readout across noteOff is intentional: under Max's deferlow
+  // coalescing, a sub-frame show/clear pair drains in a single low-priority
+  // slot and paint sees only the cleared state. The visible contract is
+  // "the note that last played stays on screen until the next noteOn or a
+  // transport stop." Silent gate gaps therefore keep the last name visible
+  // rather than blinking the display.
+  const { bridge, rec } = makeBridge({
+    seed: 1,
+    density: 1.0,
+    lock: 1.0,
+    outputGate: 0.5,
+  });
+  bridge.setBit(0, 1);
+  rec.outlets.length = 0;
+  bridge.step(0);
+  // Pre: one show emit recorded. Now find and fire the scheduled noteOff
+  // (or the immediate one if msPerStep is still 0 on the first step). In
+  // either path, NO -1 emit may appear.
+  for (const s of rec.scheduled) s.cb();
+  const clearEmits = outletsByName(rec, "currentNote").filter(
+    (o) => (o.args[0] as number) === -1,
+  );
+  assert.equal(clearEmits.length, 0, "noteOff must not emit a clear");
+});
+
+test("step — silent step (bit0=0) emits no currentNote update (readout holds)", () => {
+  // No noteOn -> no currentNote show; the previous readout state persists.
+  // Combined with the no-clear-on-noteOff rule above, this means a silent
+  // step or a density-fail leaves the last-played name on screen.
+  const { bridge, rec } = makeBridge({
+    seed: 1,
+    length: 8,
+    density: 1.0,
+    lock: 1.0,
+  });
+  bridge.setBit(0, 0); // force LSB low -> silent step under bit-tap gate
+  rec.outlets.length = 0;
+  bridge.step(0);
+  assert.equal(
+    outletsByName(rec, "currentNote").length,
+    0,
+    "no currentNote emit on a silent step",
+  );
+});
+
+test("transportStop — emits currentNote -1 to clear the readout", () => {
+  // Stopped transport = nothing sounding. transportStop must explicitly
+  // emit -1 so the readout returns to blank instead of carrying the
+  // last-played name into a silent device.
+  const { bridge, rec } = makeBridge({ seed: 1 });
+  rec.outlets.length = 0;
+  bridge.transportStop();
+  const clears = outletsByName(rec, "currentNote").filter(
+    (o) => (o.args[0] as number) === -1,
+  );
+  assert.equal(clears.length, 1, "transportStop must clear the readout");
+});
+
+test("panic — emits currentNote -1 to clear the readout", () => {
+  // Panic is an all-notes-off discipline. Mirror that on the readout side
+  // so the last-played name doesn't linger when the user has explicitly
+  // asked the device to go quiet.
+  const { bridge, rec } = makeBridge({ seed: 1 });
+  rec.outlets.length = 0;
+  bridge.panic();
+  const clears = outletsByName(rec, "currentNote").filter(
+    (o) => (o.args[0] as number) === -1,
+  );
+  assert.equal(clears.length, 1, "panic must clear the readout");
+});

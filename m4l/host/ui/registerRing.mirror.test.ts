@@ -114,3 +114,29 @@ test("renderer emits the setBit message the bridge handles", () => {
   // becomes a no-op. Catch it via text check.
   assert.match(RENDERER_SRC, /outlet\([^)]*['"]setBit['"]/);
 });
+
+// Currently-sounding note readout (m4l-side mirror of vst's RingView
+// center text). The bridge forks every noteOn/noteOff to a `currentNote`
+// outlet (m4l/host/bridge.ts emitNoteEvent); the renderer dispatches the
+// message, mirrors midiToNoteName for note-name formatting, and shows
+// the label inside the ring.
+
+test("renderer dispatches the currentNote message the bridge forks", () => {
+  assert.match(RENDERER_SRC, /msg === ['"]currentNote['"]/);
+});
+
+test("renderer defines a midiToNoteName function (mirror of logic.ts)", () => {
+  assert.match(RENDERER_SRC, /function\s+midiToNoteName\b/);
+});
+
+test("renderer mirrors the pitch-class table (Live Yamaha convention)", () => {
+  // Same regex as rangeSlider.mirror.test.ts: must be the exact 12-name
+  // sharp table in order so reordering or substituting flat enharmonics
+  // (Db for C#) trips the check. Both jsui files keep their own copy
+  // (Max [jsui] can't import from TS), and the table is the canonical
+  // anchor shared with m4l/host/ui/rangeSlider.logic.ts midiToNoteName.
+  assert.match(
+    RENDERER_SRC,
+    /\[\s*['"]C['"]\s*,\s*['"]C#['"]\s*,\s*['"]D['"]\s*,\s*['"]D#['"]\s*,\s*['"]E['"]\s*,\s*['"]F['"]\s*,\s*['"]F#['"]\s*,\s*['"]G['"]\s*,\s*['"]G#['"]\s*,\s*['"]A['"]\s*,\s*['"]A#['"]\s*,\s*['"]B['"]\s*\]/,
+  );
+});
