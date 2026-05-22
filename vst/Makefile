@@ -1,19 +1,6 @@
-.PHONY: build configure release release-vst debug clean open kill test verify-artefacts
+.PHONY: build configure release debug clean open kill test verify-artefacts
 
 build: configure release
-
-# Full release pipeline: build → codesign → notarize+staple bundles →
-# build+sign+staple dmg → build+sign+staple pkg. Both dist/Stencil.dmg
-# and dist/Stencil.pkg are produced in lockstep so the paid Polar
-# upload can attach either artifact. Requires DEVELOPER_TEAM_ID env
-# var and the `im9-notary` keychain profile + Developer ID
-# Application / Developer ID Installer certs in the login keychain.
-# Notarization waits on Apple's service so this takes several minutes.
-release-vst: build verify-artefacts
-	./scripts/codesign.sh
-	./scripts/notarize.sh
-	./scripts/build-dmg.sh
-	./scripts/build-pkg.sh
 
 configure:
 	cmake -B build -DCMAKE_BUILD_TYPE=Release
