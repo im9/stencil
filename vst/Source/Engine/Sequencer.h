@@ -158,6 +158,11 @@ public:
     int getPosition() const { return position_; }
     bool isSeedActivated() const { return seedActivated_; }
     std::size_t heldInputCount() const { return heldInputs_.size(); }
+    // Engine's RNG state after the most recent step's draws. Published
+    // alongside the register snapshot so the editor can deterministically
+    // simulate the next length-N steps for HistoryView (= step-sequencer
+    // forward preview that matches what will actually play).
+    RngState getRngState() const { return rng_; }
 
 private:
     SequencerParams params_;

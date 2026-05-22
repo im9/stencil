@@ -1,15 +1,15 @@
-// Bit ring with γ-anticipation playhead, head-bit highlight, and center
-// fraction / note text (ADR 007 §Editor — inboil TuringSheet port +
-// §Visual playhead alignment fix).
+// Bit ring with snap-only playhead (matches m4l registerRing.jsui.js),
+// head-bit highlight, and center fraction / note text (ADR 007
+// §Editor — inboil TuringSheet port).
 //
 // Logic / renderer split (CLAUDE.md §GUI / UI components):
-//   - Geometry, hit-testing, and rotation math live in RingLogic (no
-//     JUCE), unit-tested in tests/test_RingLogic.cpp.
+//   - Geometry and hit-testing live in RingLogic (no JUCE), unit-tested
+//     in tests/test_RingLogic.cpp.
 //   - This file is the renderer + JUCE event glue. The paint loop reads
 //     the processor's atomic pre-shift register snapshot (bit 0 = bit
-//     just emitted, sitting under the playhead triangle) and computes
-//     rotation from (wallNow - lastStepTime) / stepDuration via
-//     RingLogic::phaseRotationDegrees.
+//     just emitted, sitting under the playhead triangle) and redraws on
+//     snapshot change. The snapshot itself shifts CW by one slot at each
+//     step boundary, so there is no rotation transform in the paint loop.
 //
 // Click semantics: ADR 007 §FREEZE / ROLL semantics — vst v1 routes any
 // bit-circle hit to ROLL (re-seed). Direct bit edits require persistent
@@ -47,6 +47,7 @@ private:
 
     int lastDrawnSteps_ = -1;
     engine::RegisterBits lastDrawnRegister_ = 0;
+    int lastDrawnNote_ = -2;  // -1 is a valid "cleared" snapshot value
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RingView)
 };

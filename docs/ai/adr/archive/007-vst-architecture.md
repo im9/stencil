@@ -78,6 +78,35 @@ and earlier 2026-05-16 entries is closed; the only remaining
 intentional difference is the click-to-edit affordance
 (m4l setBit vs vst click-to-ROLL), documented in §Editor
 §FREEZE / ROLL semantics.
+**Revised**: 2026-05-22 — vst ring animation removed (snap-only, matches
+m4l). The 2026-05-10 d87f97b "γ-anticipation phase rotation" and the
+2026-05-22 cubic-ease-in-out follow-up both felt unnatural in real Live /
+Logic playback: the static-then-burst snap left visible jerks at the
+window edges, and the full-step ease introduced per-step pauses that
+clashed with steady note timing. Reverted to m4l's snap-only contract
+(snapshot itself shifts CW one slot per step, no AffineTransform rotation
+in the paint loop). Concretely: `RingLogic::phaseRotationDegrees` and its
+tests deleted, `RingView` paint / mouseDown / timerCallback no longer
+consume phase, `PluginProcessor` drops `lastStepTimeMicros_` /
+`stepDurationMicros_` atomics + getters. The 2026-05-16 entry's claim
+that m4l adopted the vst anticipation animation is moot — m4l
+`registerRing.jsui.js` shipped snap-only and never carried the rotation;
+vst now matches that contract bidirectionally.
+
+Center label lifecycle aligned to m4l in the same pass. Previously
+`snapshotNote_` was a per-step value that defaulted to 60 (C3) on
+construction / ROLL / transport start and 0 (C-2) on every silent step
+(`StepOutput::note` initializer), so the editor's center label flashed to
+stale "default" pitches between active steps. New semantic mirrors m4l
+`bridge.ts`'s `currentNote` outlet: -1 sentinel = "no audible note"; the
+field is written only on audible step boundaries, preserved across silent
+steps, and cleared to -1 on transport stop, panic, bypass, ROLL, and
+transport start. `RingView` hides the center label when snap.note < 0.
+`snapshotNote_` default changed from 60 to -1. Test coverage adds
+`processBlock: noteOn fires iff snap.reg bit 0 is on (density=1)` (pins
+the visual contract "highlighted bit = just-emitted note"), plus
+`snap.note persists across silent steps` and `transport start clears
+snap.note to -1` lifecycle tests.
 **Revised**: 2026-05-18 — §Distribution section added covering the
 dual-artifact (DMG + PKG) macOS release pipeline. DMG =
 drag-to-install (user picks folder); PKG = signed system-wide
@@ -277,7 +306,7 @@ vst/
     Editor/                              JUCE Editor — inboil TuringSheet port
       PluginEditor.h, PluginEditor.cpp     top-level layout (header / body / history)
       Theme.h, Theme.cpp                   palette + typography tokens
-      RingView.h, RingView.cpp             left-side bit ring (revolver rotation,
+      RingView.h, RingView.cpp             left-side bit ring (snap-only,
                                            head bit, fraction + note text)
       RingLogic.h, RingLogic.cpp           pure hit-test math (testable)
       RightRailView.h, RightRailView.cpp   right-side fieldset stack
@@ -551,9 +580,10 @@ Resizable; `RingView` flexes, `RightRailView` stays at 280px,
   via APVTS-equivalent register write, repaints. Renderer has
   no business logic.
 
-The same split applies to bit-ring revolver rotation (cumulative
-step counter → rotation degrees) — pure math in `RingLogic`,
-`AffineTransform` in `RingView`.
+The ring is snap-only (no paint-time rotation transform) per the
+2026-05-22 revision. The snapshot itself shifts CW by one slot at each
+step boundary, so bit 0 always sits at the top under the playhead
+triangle without an `AffineTransform`.
 
 #### FREEZE / ROLL semantics
 
@@ -814,7 +844,7 @@ off-GitHub without rebuilding the artifact layer.
 - APVTS-backed parameter surface matching concept.md
 - Sample-accurate transport-driven step scheduling, hung-note
   discipline, panic
-- Inboil-style editor: ring + revolver rotation + history bars +
+- Inboil-style editor: ring (snap-only, matches m4l) + history bars +
   4-fieldset right rail
 - Catch2 v3 test harness with shared test vector loading
 - macOS build via CMake + Makefile, matching oedipa template
@@ -939,8 +969,8 @@ pass at every phase boundary.
 - [x] `Source/Editor/Theme.h/.cpp` — palette + typography tokens
       from inboil reference.
 - [x] `Source/Editor/RingLogic.h/.cpp`, `RingView.h/.cpp` — bit
-      ring with revolver rotation, head-bit highlight, fraction +
-      note center text.
+      ring (snap-only per 2026-05-22), head-bit highlight, fraction +
+      note center text (m4l-lifecycle: hides on -1 sentinel).
 - [x] `Source/Editor/ActionsView.h/.cpp` — FREEZE / ROLL buttons.
 - [x] `Source/Editor/RightRailView.h/.cpp` — 4 fieldsets
       (Parameters / Output / Trigger / Reproducibility) with APVTS
@@ -1305,11 +1335,15 @@ Tag legend: `(code, vst)` / `(code, m4l)` / `(doc)`.
 - **vst** — this ADR.
 - **m4l** — followed onto the same spec on 2026-05-16: mode dispatch
   dropped, density bit-tap gate flipped to `&&`, pre-shift register
-  snapshot published per step, jsui ring adopts CCW arrangement +
-  anticipation phase rotation (mirrors vst's d87f97b). The cross-
-  target conformance tests already read the shared
-  `rng-test-vectors.json` and `turing-test-vectors.json`; engine
-  semantics remain a single source of truth.
+  snapshot published per step, jsui ring adopts CCW arrangement. The
+  2026-05-16 entry's note about m4l adopting vst's anticipation phase
+  rotation was inaccurate (m4l shipped snap-only and never rotated);
+  vst converged onto m4l's snap-only contract on 2026-05-22. Center
+  label lifecycle (m4l `bridge.ts` `currentNote` outlet, -1 sentinel
+  to hide on stop / panic / ROLL / start) is also matched by vst as
+  of 2026-05-22. Cross-target conformance tests already read the
+  shared `rng-test-vectors.json` and `turing-test-vectors.json`;
+  engine semantics remain a single source of truth.
 - **Engine semantics (ADR 001 contract)** — the C++ port is bound
   by the same test vectors as the TS port. Drift is caught at
   build time by `make test` failing on vector mismatch.

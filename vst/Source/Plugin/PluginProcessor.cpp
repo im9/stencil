@@ -41,11 +41,14 @@ StencilProcessor::StencilProcessor()
     // lastEmittedRegister == register here (Sequencer ctor initializes
     // it to the freshly-created register).
     publishSnapshot(sequencer_.getLastEmittedRegister(),
-                    /*steps*/ 0, /*note*/ 60, /*active*/ false, /*mutated*/ -1);
+                    /*steps*/ 0, /*note*/ -1, /*active*/ false, /*mutated*/ -1,
+                    sequencer_.getRegister(), sequencer_.getRngState());
 }
 
 void StencilProcessor::publishSnapshot(engine::RegisterBits reg, int steps,
-                                       int note, bool active, int mutated)
+                                       int note, bool active, int mutated,
+                                       engine::RegisterBits currentReg,
+                                       const engine::RngState& currentRng)
 {
     // Seqlock writer half: bump version to odd to flag in-flight write,
     // then store fields under relaxed (the version's release ordering
@@ -57,6 +60,9 @@ void StencilProcessor::publishSnapshot(engine::RegisterBits reg, int steps,
     snapshotNote_.store(note, std::memory_order_relaxed);
     snapshotActive_.store(active, std::memory_order_relaxed);
     snapshotMutated_.store(mutated, std::memory_order_relaxed);
+    snapshotCurrentReg_.store(currentReg, std::memory_order_relaxed);
+    for (int i = 0; i < 4; ++i)
+        snapshotCurrentRng_[i].store(currentRng.s[i], std::memory_order_relaxed);
     snapshotVersion_.store(v + 2, std::memory_order_release);
 }
 
@@ -64,7 +70,7 @@ StencilProcessor::EditorSnapshot StencilProcessor::readEditorSnapshot() const
 {
     // Seqlock reader: spin while an in-flight write is observed (odd
     // version) or the version changed during the field reads. Writer
-    // is wait-free and finishes in ~6 atomic ops, so 1–2 iterations is
+    // is wait-free and finishes in ~10 atomic ops, so 1–2 iterations is
     // the steady-state cost under contention.
     EditorSnapshot s;
     while (true)
@@ -72,11 +78,14 @@ StencilProcessor::EditorSnapshot StencilProcessor::readEditorSnapshot() const
         const auto v1 = snapshotVersion_.load(std::memory_order_acquire);
         if ((v1 & 1u) == 0)
         {
-            s.reg     = snapshotReg_.load(std::memory_order_relaxed);
-            s.steps   = snapshotSteps_.load(std::memory_order_relaxed);
-            s.note    = snapshotNote_.load(std::memory_order_relaxed);
-            s.active  = snapshotActive_.load(std::memory_order_relaxed);
-            s.mutated = snapshotMutated_.load(std::memory_order_relaxed);
+            s.reg        = snapshotReg_.load(std::memory_order_relaxed);
+            s.steps      = snapshotSteps_.load(std::memory_order_relaxed);
+            s.note       = snapshotNote_.load(std::memory_order_relaxed);
+            s.active     = snapshotActive_.load(std::memory_order_relaxed);
+            s.mutated    = snapshotMutated_.load(std::memory_order_relaxed);
+            s.currentReg = snapshotCurrentReg_.load(std::memory_order_relaxed);
+            for (int i = 0; i < 4; ++i)
+                s.currentRng.s[i] = snapshotCurrentRng_[i].load(std::memory_order_relaxed);
             const auto v2 = snapshotVersion_.load(std::memory_order_acquire);
             if (v1 == v2) return s;
         }
@@ -227,6 +236,11 @@ void StencilProcessor::emitPanic(juce::MidiBuffer& midi, int sampleOffset)
     // discipline: panic is required behavior, not optional.
     for (int ch = 1; ch <= 16; ++ch)
         midi.addEvent(juce::MidiMessage::allNotesOff(ch), sampleOffset);
+
+    // Panic = no notes are sounding; clear the ring's center-label note
+    // so a stale name doesn't linger after CC 123 (matches m4l bridge
+    // panic()'s emitOutlet("currentNote", -1)).
+    snapshotNote_.store(-1, std::memory_order_relaxed);
 }
 
 void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiBuffer& midi)
@@ -257,12 +271,13 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
         // Reset cumulative step counter so the history strip realigns
         // with the new (seed, length) pair. Otherwise ROLL would
         // advance the visual position past the loop boundary.
+        // ROLL / seed-or-length change: clear the center label (note=-1)
+        // so the loop-just-rerolled state doesn't keep showing the last
+        // played note. Matches m4l bridge's panic() / lifecycle clear.
         publishSnapshot(sequencer_.getLastEmittedRegister(),
-                        /*steps*/ 0, /*note*/ 60,
-                        /*active*/ false, /*mutated*/ -1);
-        // Drop the playhead anchor: no recent step → RingView shows
-        // the static (rotation 0) frame until the next emission.
-        lastStepTimeMicros_.store(0, std::memory_order_relaxed);
+                        /*steps*/ 0, /*note*/ -1,
+                        /*active*/ false, /*mutated*/ -1,
+                        sequencer_.getRegister(), sequencer_.getRngState());
     }
 
     // Read transport state.
@@ -295,7 +310,8 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
     if (flushPendingRequested_.exchange(false, std::memory_order_acq_rel))
         flushPending(outMidi, 0);
 
-    // Transport edge: playing → stopped. Emit panic at offset 0.
+    // Transport edge: playing → stopped. Emit panic at offset 0 (also
+    // clears the center label via emitPanic's snapshotNote_ store).
     if (wasPlaying_ && !isPlaying)
     {
         emitPanic(outMidi, 0);
@@ -321,10 +337,13 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
             && sequencer_.isSeedActivated();
         if (!preserveUserPattern)
             sequencer_.reset();
+        // Center label starts fresh: -1 = no audible note. The label
+        // updates on the first active step (matches m4l bridge's
+        // transportStart() + dispatch() lifecycle).
         publishSnapshot(sequencer_.getLastEmittedRegister(),
-                        /*steps*/ 0, /*note*/ 60,
-                        /*active*/ false, /*mutated*/ -1);
-        lastStepTimeMicros_.store(0, std::memory_order_relaxed);
+                        /*steps*/ 0, /*note*/ -1,
+                        /*active*/ false, /*mutated*/ -1,
+                        sequencer_.getRegister(), sequencer_.getRngState());
     }
 
     // Drain any noteOffs scheduled to fire in this block.
@@ -361,18 +380,6 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
 
         const int stepDur = stepDurationSamples(bpm, params.subdivision);
 
-        // Publish step duration for the editor's γ-anticipation phase
-        // computation. Derive from bpm + subdivision (rather than from
-        // `stepDur × sampleRate`) so the result is tempo-exact even for
-        // non-integer sample lengths per step.
-        if (bpm > 0.0)
-        {
-            const double stepUs = 60'000'000.0
-                / (bpm * engine::subdivisionsPerQuarter(params.subdivision));
-            stepDurationMicros_.store(static_cast<int64_t>(stepUs),
-                                      std::memory_order_relaxed);
-        }
-
         // Interleave cursor over the input MIDI buffer. Input events with
         // samplePosition ≤ current boundary's sampleOffset are drained
         // BEFORE the boundary's processStep so gate / seed state at the
@@ -394,16 +401,10 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
             // empty, Sequencer::processStep is a no-op (register / rng
             // frozen per ADR 007 §MIDI processing). Mirror that freeze
             // on the editor side — skip the snapshot publication so the
-            // ring's γ-anticipation rotation stops, and zero
-            // lastStepTimeMicros_ so an in-flight rotation from the last
-            // held-step collapses back to the static frame instead of
-            // easing toward a step that will never sound.
+            // ring doesn't keep advancing through bits that never sound.
             if (params.triggerMode == engine::TriggerMode::Gate
                 && sequencer_.heldInputCount() == 0)
-            {
-                lastStepTimeMicros_.store(0, std::memory_order_relaxed);
                 continue;
-            }
 
             // Capture register before stepping so we can detect whether
             // shiftAndFlip flipped the bit (new MSB ≠ consumed LSB).
@@ -441,16 +442,18 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
                 ? 0
                 : -1;
             const int newSteps = snapshotSteps_.load(std::memory_order_relaxed) + 1;
+            // Center label follows m4l's currentNote lifecycle: update on
+            // an audible step, preserve across silent steps (so the
+            // last-played name stays visible during density-fail or LSB=0
+            // gaps). Audio thread is the sole snapshotNote_ writer, so
+            // loading our own previous value is well-defined.
+            const int snapNote = o.active
+                ? o.note
+                : snapshotNote_.load(std::memory_order_relaxed);
             publishSnapshot(sequencer_.getLastEmittedRegister(),
-                            newSteps, o.note, o.active, mutated);
-
-            // γ-anticipation playhead anchor: timestamp this boundary so
-            // RingView can compute (now - lastStepTime) / stepDuration
-            // as the rotation phase. Microseconds give the editor enough
-            // resolution for sub-step animation timing on any sane bpm.
-            const auto nowUs = static_cast<int64_t>(
-                juce::Time::getMillisecondCounterHiRes() * 1000.0);
-            lastStepTimeMicros_.store(nowUs, std::memory_order_relaxed);
+                            newSteps, snapNote, o.active, mutated,
+                            sequencer_.getRegister(),
+                            sequencer_.getRngState());
 
             if (!o.active)
                 continue;

@@ -56,26 +56,6 @@ public:
     static int hitTest(Point2 click, int length, float ringRadius,
                        float bitRadius, Point2 center);
 
-    // γ-anticipation playhead rotation (ADR 007 §Visual playhead
-    // alignment). `phase` is the fraction of step elapsed since the
-    // last step boundary fired (clamped to [0, 1]); `animationStart`
-    // is the phase where the ring starts moving (everything before is
-    // static).
-    //
-    // Returns 0 for [0, animationStart], then linearly interpolates
-    // from 0 to +360/length CW across [animationStart, 1]. With the
-    // CCW bit arrangement (bit 1 at upper-left), a CW rotation by
-    // 360/length brings bit 1 of the pre-shift snapshot from upper-
-    // left to the top. PluginProcessor swaps the snapshot at the next
-    // step boundary; bit 0 of the new snapshot equals bit 1 of the
-    // old one, so the value at the top is continuous through the
-    // rotation reset to 0.
-    //
-    // Returns 0 for length <= 0 (degenerate; the APVTS range is
-    // [2, 32] but the math layer has no enforcement).
-    static float phaseRotationDegrees(double phase, int length,
-                                      double animationStart = 0.8);
-
     // FREEZE button press. ADR 007 §FREEZE / ROLL semantics — toggles
     // lock between the user's previous value and 1.0. Cold-start
     // (currentLock == 1.0 with no stash) restores 0.5 to give the user

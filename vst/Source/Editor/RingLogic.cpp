@@ -46,18 +46,6 @@ int RingLogic::hitTest(Point2 click, int length, float ringRadius,
     return -1;
 }
 
-float RingLogic::phaseRotationDegrees(double phase, int length,
-                                      double animationStart)
-{
-    if (length <= 0) return 0.0f;
-    const double p = std::clamp(phase, 0.0, 1.0);
-    if (p <= animationStart) return 0.0f;
-    const double span = 1.0 - animationStart;
-    if (span <= 0.0) return 0.0f;
-    const double t = (p - animationStart) / span;  // 0..1 across the window
-    return static_cast<float>(+360.0 / static_cast<double>(length) * t);
-}
-
 FreezeResult RingLogic::freezeAction(float currentLock,
                                      std::optional<float> prevLock)
 {
