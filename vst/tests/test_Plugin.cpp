@@ -381,6 +381,11 @@ TEST_CASE("processBlock playing→stopped edge emits all-notes-off panic",
         }
         CHECK(allNotesOffCount == 16);  // CC 123 on every channel
     }
+
+    // Center label is cleared on stop (matches m4l bridge transportStop +
+    // panic): so the ring's name readout doesn't carry over into the
+    // silent device. -1 sentinel hides the label in RingView.
+    CHECK(proc.getLastNote() == -1);
 }
 
 TEST_CASE("processBlock noteOff schedules across blocks for long gates",
@@ -722,10 +727,10 @@ TEST_CASE("processBlock gate-mode with no held input freezes visual snapshots",
 {
     // ADR 007 §MIDI processing: in triggerMode = gate, while the held-set
     // is empty, transport-driven steps are silent and register / rng are
-    // frozen. The editor's ring uses getLastStepTimeMicros() as the
-    // γ-anticipation anchor and getCumulativeSteps() as the dirty-flag
-    // trigger; both must stay quiescent in gate-idle so the ring doesn't
-    // keep rotating CW step-by-step through bits that never sounded.
+    // frozen. The editor's ring uses getCumulativeSteps() as the dirty-
+    // flag trigger; it must stay quiescent in gate-idle so the ring
+    // doesn't keep advancing CW step-by-step through bits that never
+    // sounded.
     StencilProcessor proc;
     auto& apvts = proc.getApvts();
     apvts.getParameter(pid::triggerMode)->setValueNotifyingHost(
@@ -746,7 +751,6 @@ TEST_CASE("processBlock gate-mode with no held input freezes visual snapshots",
     proc.processBlock(audio, midi);
 
     CHECK(proc.getCumulativeSteps() == 0);
-    CHECK(proc.getLastStepTimeMicros() == 0);
     CHECK(proc.getRegisterSnapshot() == regBefore);
 
     int noteOnCount = 0;
@@ -756,14 +760,12 @@ TEST_CASE("processBlock gate-mode with no held input freezes visual snapshots",
     CHECK(noteOnCount == 0);
 }
 
-TEST_CASE("processBlock gate-mode clears animation anchor when input released",
+TEST_CASE("processBlock gate-mode stops step advance after key released",
           "[plugin][processBlock][trigger_mode][gate_idle]")
 {
-    // Holding a key advances cumulativeSteps and anchors lastStepTime;
-    // releasing it must freeze further snapshot publication AND zero
-    // lastStepTime so the ring snaps back to the static frame instead of
-    // completing the in-flight γ-anticipation rotation toward a step that
-    // will never sound.
+    // Holding a key advances cumulativeSteps; releasing it must freeze
+    // further snapshot publication so the ring doesn't keep advancing
+    // through bits that never sound.
     StencilProcessor proc;
     auto& apvts = proc.getApvts();
     apvts.getParameter(pid::triggerMode)->setValueNotifyingHost(
@@ -786,7 +788,6 @@ TEST_CASE("processBlock gate-mode clears animation anchor when input released",
         proc.processBlock(audio, midi);
     }
     CHECK(proc.getCumulativeSteps() == 4);
-    CHECK(proc.getLastStepTimeMicros() > 0);
 
     // Block 2: noteOff at sample 0 → gate-idle for all 4 boundaries.
     ph.position.setPpqPosition(juce::makeOptional(0.25));
@@ -797,7 +798,6 @@ TEST_CASE("processBlock gate-mode clears animation anchor when input released",
         proc.processBlock(audio, midi);
     }
     CHECK(proc.getCumulativeSteps() == 4);          // no advance during gate-idle
-    CHECK(proc.getLastStepTimeMicros() == 0);       // animation anchor cleared
 }
 
 // ─── Sample-accurate input MIDI (ADR 007 §Audit follow-ups — RT safety) ──
@@ -940,6 +940,182 @@ TEST_CASE("readEditorSnapshot returns fields from a single boundary",
     CHECK(s.mutated == proc.getMutatedBitSnapshot());
     CHECK(s.steps == 4);     // 4 boundaries in this block
     CHECK(s.active);         // length=2 seed=0 register=0b11, every step active
+}
+
+// ─── noteOn ↔ register bit-0 correspondence + label lifecycle ───────────
+
+TEST_CASE("processBlock: noteOn fires iff snap.reg bit 0 is on (density=1)",
+          "[plugin][processBlock][snapshot][correspondence]")
+{
+    // Justification: the editor's visual contract is "highlighted bit at
+    // the read-head (bit 0 of the pre-shift snapshot) is the bit just
+    // emitted." This pins the contract step-by-step: with density=1.0
+    // (no probabilistic gate confound), a noteOn fires in exactly the
+    // blocks where snap.reg's bit 0 == 1, and the emitted pitch equals
+    // snap.note. Blocks that emit no noteOn always have snap.reg bit
+    // 0 == 0 and snap.active == false; conversely, blocks with bit 0
+    // == 1 always emit a noteOn whose pitch matches snap.note.
+    //
+    // Block sizing: 6000 samples @ 48 kHz / 120 BPM = exactly one 16th
+    // = one boundary per block. Snapshot is therefore observable per
+    // step rather than only "last step in block."
+    StencilProcessor proc;
+    auto& apvts = proc.getApvts();
+    apvts.getParameter(pid::density)->setValueNotifyingHost(1.0f);
+    apvts.getParameter(pid::lock)->setValueNotifyingHost(0.5f);   // mix flips + holds
+    apvts.getParameter(pid::outputGate)->setValueNotifyingHost(0.25f);
+
+    proc.prepareToPlay(48000.0, 6000);
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setIsPlaying(true);
+    proc.setPlayHead(&ph);
+
+    int activeStepCount = 0;
+    int silentStepCount = 0;
+    constexpr int kSteps = 64;  // enough to see both branches
+    for (int i = 0; i < kSteps; ++i)
+    {
+        ph.position.setPpqPosition(juce::makeOptional(i * 0.25));
+        juce::AudioBuffer<float> audio(0, 6000);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+
+        const auto s = proc.readEditorSnapshot();
+        const bool bit0On = (s.reg & 1u) != 0u;
+
+        int noteOnCount = 0;
+        int firstNoteOnPitch = -1;
+        for (const auto meta : midi)
+        {
+            const auto msg = meta.getMessage();
+            if (msg.isNoteOn())
+            {
+                if (firstNoteOnPitch < 0)
+                    firstNoteOnPitch = msg.getNoteNumber();
+                ++noteOnCount;
+            }
+        }
+
+        if (s.active)
+        {
+            REQUIRE(bit0On);                       // active ⇒ bit 0 on
+            REQUIRE(noteOnCount == 1);             // active ⇒ exactly one noteOn
+            REQUIRE(firstNoteOnPitch == s.note);   // emitted pitch matches snapshot
+            ++activeStepCount;
+        }
+        else
+        {
+            REQUIRE_FALSE(bit0On);                 // density=1 ⇒ active==bit0
+            REQUIRE(noteOnCount == 0);             // no noteOn on silent step
+            ++silentStepCount;
+        }
+    }
+
+    // Sanity: lock=0.5 + 64 steps exercises both branches in practice
+    // (xoshiro128++ at this seed produces a mix). Pin the floor so a
+    // future RNG change that accidentally produces all-on or all-off
+    // surfaces here.
+    REQUIRE(activeStepCount > 0);
+    REQUIRE(silentStepCount > 0);
+}
+
+TEST_CASE("processBlock: snap.note persists across silent steps (m4l lifecycle)",
+          "[plugin][processBlock][snapshot][label_lifecycle]")
+{
+    // m4l bridge.ts contract: noteOn forks to `currentNote = pitch`,
+    // silent steps do NOT clear (the readout holds the last name until
+    // transportStop / panic / ROLL clears it to -1). vst's snapshotNote_
+    // mirrors that: silent steps preserve the previous value. This test
+    // walks a mixed active/silent pattern and asserts snap.note never
+    // jumps to 0 / 60 / any "default" value mid-stream.
+    StencilProcessor proc;
+    auto& apvts = proc.getApvts();
+    apvts.getParameter(pid::density)->setValueNotifyingHost(1.0f);
+    apvts.getParameter(pid::lock)->setValueNotifyingHost(0.5f);
+
+    proc.prepareToPlay(48000.0, 6000);
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setIsPlaying(true);
+    proc.setPlayHead(&ph);
+
+    int lastAudibleNote = -1;
+    bool sawSilentAfterAudible = false;
+    for (int i = 0; i < 64; ++i)
+    {
+        ph.position.setPpqPosition(juce::makeOptional(i * 0.25));
+        juce::AudioBuffer<float> audio(0, 6000);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+
+        const auto s = proc.readEditorSnapshot();
+        if (s.active)
+        {
+            lastAudibleNote = s.note;
+        }
+        else if (lastAudibleNote >= 0)
+        {
+            // Silent step after at least one audible step: snap.note
+            // must equal the most recent audible note (persist), not
+            // 0 or 60 or any "default" overwrite.
+            REQUIRE(s.note == lastAudibleNote);
+            sawSilentAfterAudible = true;
+        }
+    }
+    REQUIRE(sawSilentAfterAudible);  // pin that we actually exercised the persist path
+}
+
+TEST_CASE("processBlock: transport start clears snap.note to -1",
+          "[plugin][processBlock][snapshot][label_lifecycle]")
+{
+    // Transport start = fresh loop; the center label must hide until
+    // the first audible step. -1 is the "no audible note" sentinel
+    // that RingView checks to suppress the label.
+    StencilProcessor proc;
+    auto& apvts = proc.getApvts();
+    apvts.getParameter(pid::density)->setValueNotifyingHost(1.0f);
+    apvts.getParameter(pid::lock)->setValueNotifyingHost(1.0f);
+
+    proc.prepareToPlay(48000.0, 6000);
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    ph.position.setIsPlaying(true);
+    proc.setPlayHead(&ph);
+
+    // Block 1: 1 step, snap.note becomes an audible pitch.
+    {
+        juce::AudioBuffer<float> audio(0, 6000);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+    REQUIRE(proc.getLastNote() >= 0);
+
+    // Stop transport → snap.note clears to -1 via emitPanic.
+    ph.position.setIsPlaying(false);
+    {
+        juce::AudioBuffer<float> audio(0, 6000);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+    CHECK(proc.getLastNote() == -1);
+
+    // Restart transport → snap.note stays at -1 until the first audible
+    // step lands. The transport-start branch zeros the snapshot before
+    // boundaries process, so the editor's first-paint after restart
+    // shows no label. PPQ 0.1 + a 1-sample block (~4e-5 PPQ wide) puts
+    // the block entirely between subdivision boundaries (0 and 0.25), so
+    // no processStep fires inside this restart block and the start-edge
+    // clear is observable.
+    ph.position.setIsPlaying(true);
+    ph.position.setPpqPosition(juce::makeOptional(0.1));
+    {
+        juce::AudioBuffer<float> audio(0, 1);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+    CHECK(proc.getLastNote() == -1);
 }
 
 // ─── outputGate=0 emission clamp (ADR 007 §Audit follow-ups) ──────────────

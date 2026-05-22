@@ -75,8 +75,10 @@ public:
     // `mutated` is 0 when shiftAndFlip flipped the just-emitted bit (the
     // new MSB value differs from the consumed LSB), -1 otherwise. With
     // the pre-shift snapshot the flipped bit lives at LSB (index 0) of
-    // the displayed register — not at the post-shift MSB position. Drives
-    // the salmon "mutated" highlight in RingView.
+    // the displayed register — not at the post-shift MSB position. Feeds
+    // the salmon "mutated" highlight in RingView, which additionally
+    // gates on bit 0 == 1 so salmon only shows for audible mutations
+    // (matches the user intuition "salmon ⇒ note sounded").
     struct EditorSnapshot
     {
         engine::RegisterBits reg     = 0;
@@ -102,16 +104,6 @@ public:
     int  getLastNote()           const { return snapshotNote_.load(std::memory_order_relaxed); }
     bool getLastActive()         const { return snapshotActive_.load(std::memory_order_relaxed); }
     int  getMutatedBitSnapshot() const { return snapshotMutated_.load(std::memory_order_relaxed); }
-
-    // ── γ-anticipation playhead timing (ADR 007 §Visual) ──────────────────
-    // Wall-clock timestamp of the most recent step boundary in
-    // microseconds (from juce::Time::getMillisecondCounterHiRes), and
-    // the duration of a single subdivision step at the current bpm.
-    // RingView computes `phase = (now - lastStepTime) / stepDuration`
-    // and feeds that to RingLogic::phaseRotationDegrees so the ring
-    // eases CW into the next emission across the last 20% of each step.
-    int64_t getLastStepTimeMicros() const { return lastStepTimeMicros_.load(std::memory_order_relaxed); }
-    int64_t getStepDurationMicros() const { return stepDurationMicros_.load(std::memory_order_relaxed); }
 
 private:
     juce::AudioProcessorValueTreeState apvts;
@@ -168,9 +160,13 @@ private:
     // `snapshotReg_` carries the pre-shift register (Sequencer::
     // getLastEmittedRegister) so bit 0 = "bit just emitted" lines up
     // with the playhead triangle at the moment of sounding. Default 0
-    // renders an all-empty ring until the first step lands; harmless
-    // because lastStepTimeMicros_ stays 0 too so the editor stays in
-    // "static, no animation" mode.
+    // renders an all-empty ring until the first step lands.
+    //
+    // `snapshotNote_` follows m4l's currentNote lifecycle (bridge.ts):
+    // updated when a step emits an audible note, preserved across
+    // silent steps, cleared to -1 on transport stop / panic / ROLL /
+    // transport start so the center label hides instead of glitching
+    // to a stale default. -1 sentinel = "no audible note to show".
     //
     // `snapshotMutated_` is 0 when shiftAndFlip flipped the just-emitted
     // bit (visible at LSB of the pre-shift snapshot), -1 = no flip.
@@ -180,14 +176,9 @@ private:
     mutable std::atomic<uint32_t>     snapshotVersion_{0};
     std::atomic<engine::RegisterBits> snapshotReg_{0};
     std::atomic<int>                  snapshotSteps_{0};
-    std::atomic<int>                  snapshotNote_{60};
+    std::atomic<int>                  snapshotNote_{-1};
     std::atomic<bool>                 snapshotActive_{false};
     std::atomic<int>                  snapshotMutated_{-1};
-    // γ-anticipation playhead anchor + tempo. Microseconds keep the
-    // atomics lock-free on 64-bit platforms. Zero on idle / lifecycle
-    // reset so RingView treats "no recent step" as the static phase.
-    std::atomic<int64_t> lastStepTimeMicros_{0};
-    std::atomic<int64_t> stepDurationMicros_{0};
 
     // Range invariant listener: clamps rangeHi up when rangeLo crosses it,
     // and rangeLo down when rangeHi crosses it (matches m4l host setParam

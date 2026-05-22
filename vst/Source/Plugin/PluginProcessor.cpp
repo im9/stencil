@@ -41,7 +41,7 @@ StencilProcessor::StencilProcessor()
     // lastEmittedRegister == register here (Sequencer ctor initializes
     // it to the freshly-created register).
     publishSnapshot(sequencer_.getLastEmittedRegister(),
-                    /*steps*/ 0, /*note*/ 60, /*active*/ false, /*mutated*/ -1);
+                    /*steps*/ 0, /*note*/ -1, /*active*/ false, /*mutated*/ -1);
 }
 
 void StencilProcessor::publishSnapshot(engine::RegisterBits reg, int steps,
@@ -227,6 +227,11 @@ void StencilProcessor::emitPanic(juce::MidiBuffer& midi, int sampleOffset)
     // discipline: panic is required behavior, not optional.
     for (int ch = 1; ch <= 16; ++ch)
         midi.addEvent(juce::MidiMessage::allNotesOff(ch), sampleOffset);
+
+    // Panic = no notes are sounding; clear the ring's center-label note
+    // so a stale name doesn't linger after CC 123 (matches m4l bridge
+    // panic()'s emitOutlet("currentNote", -1)).
+    snapshotNote_.store(-1, std::memory_order_relaxed);
 }
 
 void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiBuffer& midi)
@@ -257,12 +262,12 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
         // Reset cumulative step counter so the history strip realigns
         // with the new (seed, length) pair. Otherwise ROLL would
         // advance the visual position past the loop boundary.
+        // ROLL / seed-or-length change: clear the center label (note=-1)
+        // so the loop-just-rerolled state doesn't keep showing the last
+        // played note. Matches m4l bridge's panic() / lifecycle clear.
         publishSnapshot(sequencer_.getLastEmittedRegister(),
-                        /*steps*/ 0, /*note*/ 60,
+                        /*steps*/ 0, /*note*/ -1,
                         /*active*/ false, /*mutated*/ -1);
-        // Drop the playhead anchor: no recent step → RingView shows
-        // the static (rotation 0) frame until the next emission.
-        lastStepTimeMicros_.store(0, std::memory_order_relaxed);
     }
 
     // Read transport state.
@@ -295,7 +300,8 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
     if (flushPendingRequested_.exchange(false, std::memory_order_acq_rel))
         flushPending(outMidi, 0);
 
-    // Transport edge: playing → stopped. Emit panic at offset 0.
+    // Transport edge: playing → stopped. Emit panic at offset 0 (also
+    // clears the center label via emitPanic's snapshotNote_ store).
     if (wasPlaying_ && !isPlaying)
     {
         emitPanic(outMidi, 0);
@@ -321,10 +327,12 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
             && sequencer_.isSeedActivated();
         if (!preserveUserPattern)
             sequencer_.reset();
+        // Center label starts fresh: -1 = no audible note. The label
+        // updates on the first active step (matches m4l bridge's
+        // transportStart() + dispatch() lifecycle).
         publishSnapshot(sequencer_.getLastEmittedRegister(),
-                        /*steps*/ 0, /*note*/ 60,
+                        /*steps*/ 0, /*note*/ -1,
                         /*active*/ false, /*mutated*/ -1);
-        lastStepTimeMicros_.store(0, std::memory_order_relaxed);
     }
 
     // Drain any noteOffs scheduled to fire in this block.
@@ -361,18 +369,6 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
 
         const int stepDur = stepDurationSamples(bpm, params.subdivision);
 
-        // Publish step duration for the editor's γ-anticipation phase
-        // computation. Derive from bpm + subdivision (rather than from
-        // `stepDur × sampleRate`) so the result is tempo-exact even for
-        // non-integer sample lengths per step.
-        if (bpm > 0.0)
-        {
-            const double stepUs = 60'000'000.0
-                / (bpm * engine::subdivisionsPerQuarter(params.subdivision));
-            stepDurationMicros_.store(static_cast<int64_t>(stepUs),
-                                      std::memory_order_relaxed);
-        }
-
         // Interleave cursor over the input MIDI buffer. Input events with
         // samplePosition ≤ current boundary's sampleOffset are drained
         // BEFORE the boundary's processStep so gate / seed state at the
@@ -394,16 +390,10 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
             // empty, Sequencer::processStep is a no-op (register / rng
             // frozen per ADR 007 §MIDI processing). Mirror that freeze
             // on the editor side — skip the snapshot publication so the
-            // ring's γ-anticipation rotation stops, and zero
-            // lastStepTimeMicros_ so an in-flight rotation from the last
-            // held-step collapses back to the static frame instead of
-            // easing toward a step that will never sound.
+            // ring doesn't keep advancing through bits that never sound.
             if (params.triggerMode == engine::TriggerMode::Gate
                 && sequencer_.heldInputCount() == 0)
-            {
-                lastStepTimeMicros_.store(0, std::memory_order_relaxed);
                 continue;
-            }
 
             // Capture register before stepping so we can detect whether
             // shiftAndFlip flipped the bit (new MSB ≠ consumed LSB).
@@ -441,16 +431,16 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
                 ? 0
                 : -1;
             const int newSteps = snapshotSteps_.load(std::memory_order_relaxed) + 1;
+            // Center label follows m4l's currentNote lifecycle: update on
+            // an audible step, preserve across silent steps (so the
+            // last-played name stays visible during density-fail or LSB=0
+            // gaps). Audio thread is the sole snapshotNote_ writer, so
+            // loading our own previous value is well-defined.
+            const int snapNote = o.active
+                ? o.note
+                : snapshotNote_.load(std::memory_order_relaxed);
             publishSnapshot(sequencer_.getLastEmittedRegister(),
-                            newSteps, o.note, o.active, mutated);
-
-            // γ-anticipation playhead anchor: timestamp this boundary so
-            // RingView can compute (now - lastStepTime) / stepDuration
-            // as the rotation phase. Microseconds give the editor enough
-            // resolution for sub-step animation timing on any sane bpm.
-            const auto nowUs = static_cast<int64_t>(
-                juce::Time::getMillisecondCounterHiRes() * 1000.0);
-            lastStepTimeMicros_.store(nowUs, std::memory_order_relaxed);
+                            newSteps, snapNote, o.active, mutated);
 
             if (!o.active)
                 continue;

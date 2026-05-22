@@ -125,76 +125,10 @@ TEST_CASE("hitTest: each bit centroid resolves to its index", "[editor][ring][hi
     }
 }
 
-// ─── phaseRotationDegrees (γ-anticipation, CW) ───────────────────────────
-//
-// Reference: ADR 007 §Visual playhead alignment. With the CCW bit
-// arrangement (bit 0 top, bit 1 upper-left, ...) the right-shift
-// register's value flow looks CW on screen. The animation:
-//
-//   - Static rotation 0 for the first `animationStart` (default 0.8)
-//     of each step; bit 0 of the pre-shift snapshot sits at top under
-//     the triangle (= bit just emitted).
-//   - Last (1 - animationStart) fraction: rotation eases linearly
-//     from 0 to +360/length CW. Bit 1 of the snapshot (visually
-//     upper-left) sweeps CW toward top, landing there at phase=1.
-//   - At the next step boundary the snapshot snaps to R_{N+1} and
-//     rotation resets to 0. Bit 0 of R_{N+1} == bit 1 of R_N, so the
-//     value at the top is continuous through the reset.
-
-TEST_CASE("phaseRotationDegrees: zero rotation before animation window",
-          "[editor][ring][phase]")
-{
-    REQUIRE(RingLogic::phaseRotationDegrees(0.0,  8, 0.8) == 0.0f);
-    REQUIRE(RingLogic::phaseRotationDegrees(0.5,  8, 0.8) == 0.0f);
-    REQUIRE(RingLogic::phaseRotationDegrees(0.79, 8, 0.8) == 0.0f);
-}
-
-TEST_CASE("phaseRotationDegrees: smooth zero-crossing at animationStart",
-          "[editor][ring][phase]")
-{
-    REQUIRE_THAT(RingLogic::phaseRotationDegrees(0.8, 8, 0.8),
-                 Catch::Matchers::WithinAbs(0.0, kEps));
-}
-
-TEST_CASE("phaseRotationDegrees: phase 1 lands at +360/length CW",
-          "[editor][ring][phase]")
-{
-    // Justification: at the end of the step the ring must have rotated
-    // CW by exactly one slot so that bit 1 of the snapshot (upper-left
-    // in the CCW arrangement) sits at the top. The next step's snap
-    // produces bit 0 of the new snapshot = bit 1 of the old, same value.
-    for (int len : {2, 4, 8, 16, 32}) {
-        REQUIRE_THAT(RingLogic::phaseRotationDegrees(1.0, len, 0.8),
-                     Catch::Matchers::WithinAbs(+360.0 / len, kEps));
-    }
-}
-
-TEST_CASE("phaseRotationDegrees: linear interpolation across the window",
-          "[editor][ring][phase]")
-{
-    // Justification: pin the easing shape so the animation feel is
-    // consistent across tempos. Linear is the cheapest stable choice;
-    // switching to ease-out later would shift the midpoint expectation,
-    // so the test moves with it intentionally.
-    for (int len : {2, 4, 8, 16, 32}) {
-        REQUIRE_THAT(RingLogic::phaseRotationDegrees(0.9, len, 0.8),
-                     Catch::Matchers::WithinAbs(+180.0 / len, kEps));
-    }
-}
-
-TEST_CASE("phaseRotationDegrees: clamps phase below 0 and above 1",
-          "[editor][ring][phase]")
-{
-    REQUIRE(RingLogic::phaseRotationDegrees(-0.5, 8, 0.8) == 0.0f);
-    REQUIRE_THAT(RingLogic::phaseRotationDegrees(1.5, 8, 0.8),
-                 Catch::Matchers::WithinAbs(+45.0, kEps));
-}
-
-TEST_CASE("phaseRotationDegrees: zero length returns zero",
-          "[editor][ring][phase]")
-{
-    REQUIRE(RingLogic::phaseRotationDegrees(0.9, 0, 0.8) == 0.0f);
-}
+// Ring rotation removed 2026-05-22 (ADR 007 §Editor revision): vst now
+// follows m4l's snap-only behavior. RingLogic no longer carries a phase
+// rotation function; bit positions are read directly from bitPosition
+// without an AffineTransform in the paint loop.
 
 // ─── freezeAction ─────────────────────────────────────────────────────────
 
