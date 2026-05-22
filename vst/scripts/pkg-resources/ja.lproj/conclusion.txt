@@ -5,7 +5,6 @@ Stencil はシステム全体で利用可能になりました。各 DAW での�
     Logic Pro       ソフトウェア音源トラックの AU MIDI FX スロット
     Bitwig Studio   音源の前段の Note FX スロット (VST3 / CLAP)
     Reaper          任意の MIDI / FX チェーンに VST3 / CLAP
-    Studio One      MIDI fx スロットに VST3
 
 ブラウザに Stencil が表示されない場合は、DAW のプラグインを再スキャンするか、DAW を再起動してください。
 
