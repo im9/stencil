@@ -86,6 +86,13 @@ public:
         int                  note    = 60;
         bool                 active  = false;
         int                  mutated = -1;
+        // Engine state AFTER the most recent emission's shift. The editor
+        // simulates `length` steps from (currentReg, currentRng) to
+        // populate the HistoryView's forward-looking cells with the
+        // deterministic next-iteration prediction (option D step-
+        // sequencer semantic: displayed note == what will play).
+        engine::RegisterBits currentReg = 0;
+        engine::RngState     currentRng{};
     };
 
     // Coherent multi-field read for the editor — single call returns a
@@ -179,6 +186,12 @@ private:
     std::atomic<int>                  snapshotNote_{-1};
     std::atomic<bool>                 snapshotActive_{false};
     std::atomic<int>                  snapshotMutated_{-1};
+    // Engine state after the most recent emission's shift — feeds the
+    // HistoryView's option-D forward simulation. RngState is 4×u32;
+    // store as separate atomics, bracketed by snapshotVersion_ so the
+    // tuple stays coherent.
+    std::atomic<engine::RegisterBits> snapshotCurrentReg_{0};
+    std::atomic<uint32_t>             snapshotCurrentRng_[4]{};
 
     // Range invariant listener: clamps rangeHi up when rangeLo crosses it,
     // and rangeLo down when rangeHi crosses it (matches m4l host setParam
@@ -191,7 +204,9 @@ private:
     // while it observes an odd version or a version change mid-read.
     // Wait-free for the writer; bounded retries for the reader.
     void publishSnapshot(engine::RegisterBits reg, int steps,
-                         int note, bool active, int mutated);
+                         int note, bool active, int mutated,
+                         engine::RegisterBits currentReg,
+                         const engine::RngState& currentRng);
 
     // Helpers
     void drainPendingNoteOffs(juce::MidiBuffer& midi, int blockSamples);

@@ -41,11 +41,14 @@ StencilProcessor::StencilProcessor()
     // lastEmittedRegister == register here (Sequencer ctor initializes
     // it to the freshly-created register).
     publishSnapshot(sequencer_.getLastEmittedRegister(),
-                    /*steps*/ 0, /*note*/ -1, /*active*/ false, /*mutated*/ -1);
+                    /*steps*/ 0, /*note*/ -1, /*active*/ false, /*mutated*/ -1,
+                    sequencer_.getRegister(), sequencer_.getRngState());
 }
 
 void StencilProcessor::publishSnapshot(engine::RegisterBits reg, int steps,
-                                       int note, bool active, int mutated)
+                                       int note, bool active, int mutated,
+                                       engine::RegisterBits currentReg,
+                                       const engine::RngState& currentRng)
 {
     // Seqlock writer half: bump version to odd to flag in-flight write,
     // then store fields under relaxed (the version's release ordering
@@ -57,6 +60,9 @@ void StencilProcessor::publishSnapshot(engine::RegisterBits reg, int steps,
     snapshotNote_.store(note, std::memory_order_relaxed);
     snapshotActive_.store(active, std::memory_order_relaxed);
     snapshotMutated_.store(mutated, std::memory_order_relaxed);
+    snapshotCurrentReg_.store(currentReg, std::memory_order_relaxed);
+    for (int i = 0; i < 4; ++i)
+        snapshotCurrentRng_[i].store(currentRng.s[i], std::memory_order_relaxed);
     snapshotVersion_.store(v + 2, std::memory_order_release);
 }
 
@@ -64,7 +70,7 @@ StencilProcessor::EditorSnapshot StencilProcessor::readEditorSnapshot() const
 {
     // Seqlock reader: spin while an in-flight write is observed (odd
     // version) or the version changed during the field reads. Writer
-    // is wait-free and finishes in ~6 atomic ops, so 1–2 iterations is
+    // is wait-free and finishes in ~10 atomic ops, so 1–2 iterations is
     // the steady-state cost under contention.
     EditorSnapshot s;
     while (true)
@@ -72,11 +78,14 @@ StencilProcessor::EditorSnapshot StencilProcessor::readEditorSnapshot() const
         const auto v1 = snapshotVersion_.load(std::memory_order_acquire);
         if ((v1 & 1u) == 0)
         {
-            s.reg     = snapshotReg_.load(std::memory_order_relaxed);
-            s.steps   = snapshotSteps_.load(std::memory_order_relaxed);
-            s.note    = snapshotNote_.load(std::memory_order_relaxed);
-            s.active  = snapshotActive_.load(std::memory_order_relaxed);
-            s.mutated = snapshotMutated_.load(std::memory_order_relaxed);
+            s.reg        = snapshotReg_.load(std::memory_order_relaxed);
+            s.steps      = snapshotSteps_.load(std::memory_order_relaxed);
+            s.note       = snapshotNote_.load(std::memory_order_relaxed);
+            s.active     = snapshotActive_.load(std::memory_order_relaxed);
+            s.mutated    = snapshotMutated_.load(std::memory_order_relaxed);
+            s.currentReg = snapshotCurrentReg_.load(std::memory_order_relaxed);
+            for (int i = 0; i < 4; ++i)
+                s.currentRng.s[i] = snapshotCurrentRng_[i].load(std::memory_order_relaxed);
             const auto v2 = snapshotVersion_.load(std::memory_order_acquire);
             if (v1 == v2) return s;
         }
@@ -267,7 +276,8 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
         // played note. Matches m4l bridge's panic() / lifecycle clear.
         publishSnapshot(sequencer_.getLastEmittedRegister(),
                         /*steps*/ 0, /*note*/ -1,
-                        /*active*/ false, /*mutated*/ -1);
+                        /*active*/ false, /*mutated*/ -1,
+                        sequencer_.getRegister(), sequencer_.getRngState());
     }
 
     // Read transport state.
@@ -332,7 +342,8 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
         // transportStart() + dispatch() lifecycle).
         publishSnapshot(sequencer_.getLastEmittedRegister(),
                         /*steps*/ 0, /*note*/ -1,
-                        /*active*/ false, /*mutated*/ -1);
+                        /*active*/ false, /*mutated*/ -1,
+                        sequencer_.getRegister(), sequencer_.getRngState());
     }
 
     // Drain any noteOffs scheduled to fire in this block.
@@ -440,7 +451,9 @@ void StencilProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiB
                 ? o.note
                 : snapshotNote_.load(std::memory_order_relaxed);
             publishSnapshot(sequencer_.getLastEmittedRegister(),
-                            newSteps, snapNote, o.active, mutated);
+                            newSteps, snapNote, o.active, mutated,
+                            sequencer_.getRegister(),
+                            sequencer_.getRngState());
 
             if (!o.active)
                 continue;

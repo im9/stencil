@@ -22,6 +22,7 @@ using stencil::plugin::readParams;
 using stencil::plugin::StencilProcessor;
 namespace pid = stencil::plugin::pid;
 namespace defaults = stencil::plugin::defaults;
+namespace engine = stencil::engine;
 
 namespace
 {
@@ -1289,4 +1290,114 @@ TEST_CASE("processBlock auto-mode register still re-derives on transport bounce"
     CHECK(proc.getSequencerForTest().getRegister() == regAfterRun1);
     // seedActivated_ stays false in auto mode.
     CHECK_FALSE(proc.getSequencerForTest().isSeedActivated());
+}
+
+// ─── Snapshot.currentReg/currentRng — option-D step-sequencer state ──────
+
+TEST_CASE("snapshot publishes engine's currentReg/Rng for forward simulation",
+          "[plugin][snapshot][history_view]")
+{
+    // After each step boundary, snap.currentReg must equal the engine's
+    // register state AFTER that step's shiftAndFlip, and snap.currentRng
+    // must equal the engine's rng state after the same step's draws.
+    // HistoryView relies on this to simulate the next length-1 steps
+    // deterministically (= "displayed note will play").
+    StencilProcessor proc;
+    auto& apvts = proc.getApvts();
+    apvts.getParameter(pid::density)->setValueNotifyingHost(1.0f);
+    apvts.getParameter(pid::lock)->setValueNotifyingHost(0.5f);
+
+    proc.prepareToPlay(48000.0, 24000);
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    ph.position.setIsPlaying(true);
+    proc.setPlayHead(&ph);
+
+    juce::AudioBuffer<float> audio(0, 24000);
+    juce::MidiBuffer midi;
+    proc.processBlock(audio, midi);
+
+    const auto snap = proc.readEditorSnapshot();
+    const auto& seq = proc.getSequencerForTest();
+    REQUIRE(snap.steps > 0);
+    CHECK(snap.currentReg == seq.getRegister());
+    const auto seqRng = seq.getRngState();
+    CHECK(snap.currentRng.s[0] == seqRng.s[0]);
+    CHECK(snap.currentRng.s[1] == seqRng.s[1]);
+    CHECK(snap.currentRng.s[2] == seqRng.s[2]);
+    CHECK(snap.currentRng.s[3] == seqRng.s[3]);
+}
+
+TEST_CASE("forward simulation from snapshot matches engine's future emissions",
+          "[plugin][snapshot][history_view][determinism]")
+{
+    // Option D contract: given snapshot at step K (with currentReg +
+    // currentRng), iterating tmStep N times from that state produces the
+    // exact (reg, note, active) sequence the engine will emit at steps
+    // K+1, K+2, ..., K+N. This is the "displayed note will play" guarantee
+    // that step-sequencer semantics depend on.
+    //
+    // Block sizing: 6000 samples @ 48 kHz / 120 BPM = exactly one 16th
+    // = one boundary per block, so we observe one step at a time.
+    StencilProcessor proc;
+    auto& apvts = proc.getApvts();
+    apvts.getParameter(pid::density)->setValueNotifyingHost(1.0f);
+    apvts.getParameter(pid::lock)->setValueNotifyingHost(0.5f);
+
+    proc.prepareToPlay(48000.0, 6000);
+    MockPlayHead ph;
+    ph.position.setBpm(juce::makeOptional(120.0));
+    ph.position.setIsPlaying(true);
+    proc.setPlayHead(&ph);
+
+    // Step 1: prime the snapshot.
+    ph.position.setPpqPosition(juce::makeOptional(0.0));
+    {
+        juce::AudioBuffer<float> audio(0, 6000);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+    }
+    const auto snapAfterStep1 = proc.readEditorSnapshot();
+    REQUIRE(snapAfterStep1.steps == 1);
+
+    // Simulate the next 7 steps from the snapshot's engine state.
+    const auto params = readParams(apvts);
+    constexpr int kPredictSteps = 7;
+    struct Predicted {
+        engine::RegisterBits preShiftReg;
+        int note;
+        bool active;
+    };
+    std::vector<Predicted> predicted;
+    {
+        engine::RegisterBits reg = snapAfterStep1.currentReg;
+        engine::RngState rng = snapAfterStep1.currentRng;
+        for (int i = 0; i < kPredictSteps; ++i) {
+            const bool bit0 = (reg & 1u) != 0u;
+            const auto r = engine::tmStep(reg, params.length, params.lock,
+                                          params.density,
+                                          params.rangeLo, params.rangeHi, rng);
+            predicted.push_back({ reg, r.note, r.active && bit0 });
+            reg = r.reg;
+        }
+    }
+
+    // Now run the engine through steps 2..8 and verify each emission
+    // matches the prediction.
+    for (int i = 0; i < kPredictSteps; ++i) {
+        ph.position.setPpqPosition(juce::makeOptional((i + 1) * 0.25));
+        juce::AudioBuffer<float> audio(0, 6000);
+        juce::MidiBuffer midi;
+        proc.processBlock(audio, midi);
+
+        const auto s = proc.readEditorSnapshot();
+        INFO("step " << (i + 2));
+        CHECK(s.reg    == predicted[(std::size_t)i].preShiftReg);
+        CHECK(s.active == predicted[(std::size_t)i].active);
+        if (predicted[(std::size_t)i].active) {
+            // snap.note has lifecycle semantic; only meaningful when active.
+            CHECK(s.note == predicted[(std::size_t)i].note);
+        }
+    }
 }
