@@ -1,8 +1,9 @@
 # ADR 006: Stencil m4l v1 — release
 
-## Status: Proposed
+## Status: Implemented
 
 **Created**: 2026-05-07
+**Implemented**: 2026-05-23 (m4l-v0.1.1 shipped via GitHub Releases + maxforlive.com link-only listing 15366 + im9.fm product page; §Verification + §Distribution ticked; item 3 amended in-place from MP3 export to YouTube upload; only the explicitly Optional second-machine cross-path test at line 235 left `[ ]`.)
 **Revised**: 2026-05-08 — added §Release artifact tooling (esbuild
 bundle of the n4m entry, root `Makefile`, `dist/` path) so the
 §Distribution checklist has a concrete shippable artifact to upload.
@@ -278,8 +279,8 @@ post-split renaming):
 Per-channel release work. Carried from [ADR 004 §Distribution][adr4]
 (Stencil-side subset):
 
-- [ ] Choose distribution channel; close the channel Open Q
-- [ ] Prepare screenshot at channel-required dimensions
-- [ ] Record audio demo (Stencil solo) and export MP3
-- [ ] Write description copy
-- [ ] Upload Stencil v1; first public version live
+- [x] Choose distribution channel; close the channel Open Q
+- [x] Prepare screenshot at channel-required dimensions
+- [x] Record demo video (Stencil solo) and upload to YouTube
+- [x] Write description copy
+- [x] Upload Stencil v1; first public version live

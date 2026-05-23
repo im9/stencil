@@ -207,8 +207,11 @@ make open               # launch the Standalone build (dev only)
 - Parameters normalized in plugin/host layer
 - Label: im9. M4L build ships free under the brand-promo posture
   (`Stencil.amxd` attached to `m4l-v*` GitHub Releases on this repo,
-  oedipa pattern). VST3 / AU / CLAP builds are planned as paid
-  releases (price / channel TBD). See ADR 005 §Distribution posture.
+  oedipa pattern; also listed on maxforlive.com link-only at
+  https://maxforlive.com/library/device.php?id=15366).
+  VST3 / AU / CLAP builds are sold via Polar at
+  USD $15 / EUR €15 / JPY ¥1980 (product page:
+  https://im9.fm/products/stencil). See ADR 005 §Distribution posture.
 
 ## Mandatory Workflow
 
