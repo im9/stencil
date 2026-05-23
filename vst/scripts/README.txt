@@ -1,4 +1,4 @@
-Stencil — probabilistic MIDI sequence generator
+Stencil __VERSION__ — probabilistic MIDI sequence generator
 im9 / Proprietary, source-available
 
 

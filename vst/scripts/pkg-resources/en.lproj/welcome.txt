@@ -1,4 +1,4 @@
-Welcome to the Stencil installer.
+Welcome to the Stencil __VERSION__ installer.
 
 Stencil is a probabilistic MIDI sequence generator by im9 — a Music Thing-style Turing Machine shift register that emits notes from a controlled-randomness loop. This installer places the Stencil plug-in (VST3, AU, and CLAP formats) into the system-wide Audio Plug-Ins folders, so any DAW on this Mac can find it:
 
@@ -8,7 +8,7 @@ Stencil is a probabilistic MIDI sequence generator by im9 — a Music Thing-styl
 
 You will be asked for your administrator password before installation.
 
-If you would rather place the bundles in a custom location, quit this installer and use the Stencil.dmg distribution instead — it lets you drag the bundles wherever you want.
+If you would rather place the bundles in a custom location, quit this installer and use the Stencil-__VERSION__.dmg distribution instead — it lets you drag the bundles wherever you want.
 
 In the Customize step you can deselect any plug-in format you do not need (for example, skip CLAP on a Logic-only setup). All three are selected by default.
 
