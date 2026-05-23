@@ -1,4 +1,4 @@
-Stencil インストーラへようこそ。
+Stencil __VERSION__ インストーラへようこそ。
 
 Stencil は im9 による確率的 MIDI シーケンスジェネレータです — Music Thing Turing Machine 系のシフトレジスタが、確率制御されたループからノートを生成します。本インストーラは Stencil プラグイン (VST3 / AU / CLAP) を Mac の システム共通の Audio Plug-Ins フォルダに配置します。これによりこのマシン上のすべての DAW から Stencil が利用可能になります。
 
