@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Stencil M4L target — pnpm workspace root for engine and host packages.",
+  "packageManager": "pnpm@10.33.4",
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
@@ -16,5 +17,8 @@
     "esbuild": "^0.24.0",
     "typescript": "^5.7.0",
     "@types/node": "^22.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": []
   }
 }
