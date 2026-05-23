@@ -167,14 +167,18 @@ bundle config marks it `--external:max-api` so esbuild leaves the
 import statement intact for Max to resolve. (Same convention as
 oedipa.)
 
-**Distribution (release builds).** `make release` (from repo root)
-runs build + bake and prepares `dist/`. The baked dev `.amxd`
-references the bundled `stencil.mjs` as a sibling on disk, so it
-only loads on the build machine. To ship: open `m4l/Stencil.amxd`
-in Max → click the **snowflake (Freeze)** button in the patcher
-toolbar (inlines every referenced JS into the `.amxd` binary) →
-*File → Save As* `dist/Stencil.amxd`. The frozen file is
-self-contained and works on any Live install. See ADR 006
+**Distribution (release builds).** `make release-m4l VERSION=X.Y.Z`
+(from repo root) builds + bakes the dev `.amxd` and then stages a
+versioned copy at `m4l/Stencil-vX.Y.Z.amxd` (gitignored). The baked
+dev `.amxd` references the bundled `stencil.mjs` as a sibling on
+disk, so it only loads on the build machine. To ship: open
+`m4l/Stencil-vX.Y.Z.amxd` in Max → click the **snowflake (Freeze)**
+button in the patcher toolbar (inlines every referenced JS into the
+`.amxd` binary) → *File → Save As* → save into `dist/` (the default
+filename `Stencil-vX.Y.Z.amxd` is already correct, just confirm the
+location). The frozen file is self-contained and works on any Live
+install. `dist/` is for frozen / signed-and-notarized artefacts
+only; un-frozen staging copies stay in `m4l/`. See ADR 006
 §Release artifact production.
 
 ### vst/

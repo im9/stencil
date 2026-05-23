@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Build dist/Stencil.dmg from already-signed-and-stapled AU + VST3 + CLAP
-# bundles. Run after codesign.sh + notarize.sh. Mirrors oedipa's
+# Build dist/Stencil-v<version>.dmg from already-signed-and-stapled AU +
+# VST3 + CLAP bundles (version parsed from vst/CMakeLists.txt). Run
+# after codesign.sh + notarize.sh. Mirrors oedipa's
 # vst/scripts/build-dmg.sh.
 #
 # The dmg itself is also signed, notarized, and stapled — belt-and-braces
@@ -17,11 +18,24 @@ fi
 NOTARY_PROFILE="${NOTARY_PROFILE:-im9-notary}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ARTEFACTS_DIR="$SCRIPT_DIR/../build/Stencil_artefacts/Release"
-DIST_DIR="$SCRIPT_DIR/../../dist"
-DMG_PATH="$DIST_DIR/Stencil.dmg"
+VST_DIR="$SCRIPT_DIR/.."
+ARTEFACTS_DIR="$VST_DIR/build/Stencil_artefacts/Release"
+DIST_DIR="$VST_DIR/../dist"
 INSTALL_TXT="$SCRIPT_DIR/INSTALL.txt"
 README_TXT="$SCRIPT_DIR/README.txt"
+
+# Parse version from CMakeLists.txt (single source of truth — same line
+# build-pkg.sh reads). Embedded in the output filename and the dmg
+# volume label.
+VERSION="$(grep -E '^project\(Stencil VERSION' "$VST_DIR/CMakeLists.txt" \
+  | sed -E 's/.*VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
+if [[ -z "$VERSION" ]]; then
+  echo "error: could not parse version from $VST_DIR/CMakeLists.txt" >&2
+  exit 1
+fi
+echo "Version: $VERSION"
+
+DMG_PATH="$DIST_DIR/Stencil-v$VERSION.dmg"
 
 AU_BUNDLE="$ARTEFACTS_DIR/AU/Stencil.component"
 VST3_BUNDLE="$ARTEFACTS_DIR/VST3/Stencil.vst3"
@@ -57,7 +71,7 @@ cp "$README_TXT" "$STAGING/"
 echo "Creating $DMG_PATH (HFS+, UDZO compressed)"
 rm -f "$DMG_PATH"
 hdiutil create \
-  -volname "Stencil" \
+  -volname "Stencil v$VERSION" \
   -srcfolder "$STAGING" \
   -format UDZO \
   -fs HFS+ \
