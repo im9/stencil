@@ -41,12 +41,20 @@ Full musical model: [`docs/ai/concept.md`](docs/ai/concept.md).
 
 ## Status
 
-`m4l/` is at v0.1.0; first release ships as `m4l-v0.1.0` on this repo's
-GitHub Releases (free, brand-promo per [ADR 005][adr5]).
+`m4l/` is at v0.1.1; free brand-promo release per [ADR 005][adr5].
+Distribution channels:
+
+- [GitHub Releases](https://github.com/im9/stencil/releases) — direct
+  `.amxd` download under the `m4l-v*` tag namespace
+- [maxforlive.com listing](https://maxforlive.com/library/device.php?id=15366) —
+  device library entry (link-only; download routes to GitHub Releases)
+- [im9.fm/products/stencil](https://im9.fm/products/stencil) — product page
 
 `vst/` is at v0.1.0: AU + VST3 + CLAP bundles built, signed, and
 notarized as a macOS DMG. Architecture and host-load matrix are
-captured by [ADR 007][adr7]. Paid release channel TBA.
+captured by [ADR 007][adr7]. Sold via Polar at USD $15 / EUR €15 /
+JPY ¥1980, purchasable from
+[im9.fm/products/stencil](https://im9.fm/products/stencil).
 
 ## Use (Max for Live)
 
@@ -61,10 +69,10 @@ see [Build](#build) below.
 
 | Target | Status | Notes |
 |---|---|---|
-| [Max for Live](m4l/) | v0.1.0 | Ableton Live MIDI effect. Free brand-promo build via this repo's GitHub Releases (`m4l-v*` tags). |
-| [VST3](vst/) | v0.1.0 | macOS, C++17 / JUCE. Self-build via `make build`; paid release TBA. |
-| [AU](vst/) | v0.1.0 | macOS. Same codebase as the VST3. Self-build via `make build`; paid release TBA. |
-| [CLAP](vst/) | v0.1.0 | macOS. Same codebase. `note-effect` build for Bitwig + Reaper. |
+| [Max for Live](m4l/) | v0.1.1 | Ableton Live MIDI effect. Free via [GitHub Releases](https://github.com/im9/stencil/releases) (`m4l-v*` tags) and [maxforlive.com](https://maxforlive.com/library/device.php?id=15366). |
+| [VST3](vst/) | v0.1.0 | macOS, C++17 / JUCE. Paid binary on Polar (USD $15 / EUR €15 / JPY ¥1980); see [Status](#status). |
+| [AU](vst/) | v0.1.0 | macOS. Same codebase as the VST3. Paid binary on Polar; see [Status](#status). |
+| [CLAP](vst/) | v0.1.0 | macOS. Same codebase. `note-effect` build for Bitwig + Reaper. Paid binary on Polar; see [Status](#status). |
 
 Musical logic is shared as a specification, not as code. m4l and vst
 are independent native implementations. Cross-target conformance is

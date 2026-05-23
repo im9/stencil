@@ -33,7 +33,7 @@ only ever holds frozen / signed-and-notarized artefacts.
   that file in Max, Freezes, and Save-As's into `dist/` (default
   filename is already correct). See
   [ADR 004](../../../docs/ai/adr/archive/004-m4l-bake-distribution.md)
-  and [ADR 006](../../../docs/ai/adr/006-m4l-release-verification.md).
+  and [ADR 006](../../../docs/ai/adr/archive/006-m4l-release-verification.md).
 - **vst** → `dist/Stencil-vX.Y.Z.pkg` (recommended installer) **and**
   `dist/Stencil-vX.Y.Z.dmg` (drag-to-install fallback) — both signed /
   notarized / stapled, built in lockstep by `make release-vst`. The

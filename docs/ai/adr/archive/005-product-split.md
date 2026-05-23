@@ -469,7 +469,7 @@ confirms the two extractions produced byte-identical results.
 ## Verification
 
 Post-split Stencil functional verification lives in
-[ADR 006 §Verification](../006-m4l-release-verification.md#verification).
+[ADR 006 §Verification](006-m4l-release-verification.md#verification).
 The §Musical motivation TM-alone premise is grounded in ongoing
 standalone use of Stencil pre-split, not re-checked here.
 
