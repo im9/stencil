@@ -5,7 +5,7 @@ Stencil ports a generator from
 Thing-style **Turing Machine** — a looping shift register that mutates
 under user-controlled stability. Per [ADR 005][adr5], Stencil ships as
 its own product from this repo; the scale-quantizer counterpart ships
-separately as Pointsman ([~/src/vst/pointsman/](../../../pointsman/)).
+separately as Pointsman ([im9/pointsman](https://github.com/im9/pointsman)).
 
 [adr5]: adr/archive/005-product-split.md
 
@@ -82,7 +82,7 @@ Thing TM + Quantizer" sound.
 Both products are MIDI effects. The host's MIDI routing handles the
 chain — Stencil and Pointsman communicate via MIDI notes only, no
 internal IPC or shared state. See Pointsman's
-[concept.md](../../../pointsman/docs/ai/concept.md) for the
+[concept.md](https://github.com/im9/pointsman/blob/main/docs/ai/concept.md) for the
 quantizer side.
 
 ## MIDI semantics
