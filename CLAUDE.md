@@ -7,7 +7,8 @@ Pynchon's *V.*
 
 Stencil is the TM-side product of the Stencil + Pointsman pair (see
 [ADR 005](docs/ai/adr/archive/005-product-split.md)). The QT-side companion
-ships from `~/src/vst/pointsman/`. The two are independent products;
+ships from the [im9/pointsman](https://github.com/im9/pointsman)
+repo. The two are independent products;
 the musical relationship is the canonical `Stencil → Pointsman` MIDI
 chain.
 

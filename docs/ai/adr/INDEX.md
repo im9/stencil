@@ -28,6 +28,7 @@ only when relevant to the current task.
 |-----|-------|--------|-------|
 | 001 | [Engine Interface — TM + Quantizer](archive/001-engine-interface.md) | Implemented | Pure-function APIs for `turing.ts` and `quantizer.ts`; types, semantics, shared test vectors. m4l reference impl 10/10 (2026-05-02). |
 | 005 | [Product Split — Stencil (TM) and Pointsman (QT)](archive/005-product-split.md) | Implemented | Per-product repo split (`stencil/`, `pointsman/`); RNG primitives shared via `rng-test-vectors.json` cross-repo sync; vst/AU = single-purpose MIDI Effect per product (VST3 + AU); m4l asset rename + migration; archive ADRs 003 / 004 with deferred verification items moving to ADR 006 (TM) and pointsman-002 (QT). |
+| 008 | [Lock LFO — periodic modulation of the loop mutation rate](008-lock-lfo.md) | Proposed | Host-side LFO modulating `lock` per step. Shape (sine / tri / saw / sqr) × host-sync period (1/4..8 bars) × amount (0..1). Engine signature and `turing-test-vectors.json` unchanged — host pre-computes per-step lock from `base_lock + lfoSignal × amount`. New "Lock LFO" fieldset in vst RightRail + m4l mirror. v0.2 first ADR (chosen 2026-05-25 over per-bit density to avoid step-sequencer character). |
 
 ## M4L
 
