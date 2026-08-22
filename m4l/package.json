@@ -14,7 +14,7 @@
     "bake:check": "node scripts/maxpat-to-amxd.mjs --check"
   },
   "devDependencies": {
-    "esbuild": "^0.28.1",
+    "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
     "@types/node": "^26.2.0"
   },
